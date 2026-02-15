@@ -10,11 +10,6 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 // Mock components for Radix UI
 
 
-const switchToInputTab = () => {
-  setActiveTab('input');
-};
-
-
 const Tabs = ({ children, defaultValue }) => {
   const [activeTab, setActiveTab] = useState(defaultValue);
   return (
@@ -295,6 +290,41 @@ export default function StoneInventoryApp() {
       alert(`No stones found for pallet number: ${palletNumberInput}`);
       setPalletDetails(null);
     }
+  };
+
+
+
+  const generatePalletPDF = () => {
+    if (!palletDetails || palletDetails.stones.length === 0) {
+      alert('No pallet data to export');
+      return;
+    }
+
+    const doc = new jsPDF();
+    doc.setFontSize(16);
+    doc.text(`Pallet Card: ${palletDetails.palletNumber}`, 105, 20, { align: 'center' });
+    doc.setFontSize(12);
+    doc.text(`Total Area: ${Number(palletDetails.totalArea).toFixed(2)} m²`, 105, 30, { align: 'center' });
+
+    const tableData = palletDetails.stones.map((stone, index) => [
+      index + 1,
+      stone.type,
+      Number(stone.thickness).toFixed(2),
+      Number(stone.length).toFixed(2),
+      Number(stone.width).toFixed(2),
+      stone.quantity,
+      Number(stone.area).toFixed(2),
+    ]);
+
+    doc.autoTable({
+      startY: 40,
+      head: [['#', 'Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)']],
+      body: tableData,
+      styles: { fontSize: 9 },
+      headStyles: { fillColor: [40, 40, 40] }
+    });
+
+    doc.save(`pallet-${palletDetails.palletNumber}.pdf`);
   };
 
   const generateSearchPDF = () => {

@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs/promises');
+const fsSync = require('fs');
 
 const isDev = !app.isPackaged;
 const dataFileName = 'stone-inventory-data.json';
@@ -28,10 +29,17 @@ async function writeDataFile(data) {
   return { success: true };
 }
 
+
+function resolveWindowIcon() {
+  const pngIcon = path.join(__dirname, '../build/icon.png');
+  return fsSync.existsSync(pngIcon) ? pngIcon : undefined;
+}
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,
     height: 800,
+    icon: resolveWindowIcon(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,

@@ -10,8 +10,18 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend)
 // Mock components for Radix UI
 
 
-const Tabs = ({ children, defaultValue }) => {
-  const [activeTab, setActiveTab] = useState(defaultValue);
+const Tabs = ({ children, defaultValue, value, onValueChange }) => {
+  const [internalActiveTab, setInternalActiveTab] = useState(defaultValue);
+  const activeTab = value ?? internalActiveTab;
+
+  const changeTab = (nextValue) => {
+    if (onValueChange) {
+      onValueChange(nextValue);
+      return;
+    }
+    setInternalActiveTab(nextValue);
+  };
+
   return (
     <div className="w-full">
       <div className="flex gap-2 mb-6 bg-gray-800 p-1 rounded-lg">
@@ -19,11 +29,11 @@ const Tabs = ({ children, defaultValue }) => {
           if (child.props.value) {
             return (
               <button
-                onClick={() => setActiveTab(child.props.value)}
+                onClick={() => changeTab(child.props.value)}
                 className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors
                   ${activeTab === child.props.value ? 'bg-blue-700' : 'bg-gray-700 hover:bg-gray-600'}`}
               >
-                {child.props.value}
+                {child.props.label || child.props.value}
               </button>
             );
           }
@@ -40,7 +50,7 @@ const Tabs = ({ children, defaultValue }) => {
   );
 };
 
-const TabsContent = ({ children, value }) => <div>{children}</div>;
+const TabsContent = ({ children }) => <div>{children}</div>;
 
 
 
@@ -108,6 +118,7 @@ const prepareSearchResults = (stones) => {
 
 
 export default function StoneInventoryApp() {
+  const [activeTab, setActiveTab] = useState('input');
   const [stoneTypes, setStoneTypes] = useState(['Granite', 'Marble', 'Limestone']);
   const [newStoneType, setNewStoneType] = useState('');
   const [formData, setFormData] = useState({
@@ -259,12 +270,12 @@ export default function StoneInventoryApp() {
   };
 
   const resetForm = () => {
-    setFormData({
-      type: '',
-      cutCode: '',
-      palletNumber: '',
-      grade: '',
-      thickness: '',
+    setFormData(prev => ({
+      type: prev.type,
+      cutCode: prev.cutCode,
+      palletNumber: prev.palletNumber,
+      grade: prev.grade,
+      thickness: prev.thickness,
       length: '',
       width: '',
       quantity: '',
@@ -272,7 +283,7 @@ export default function StoneInventoryApp() {
       invoiceNumber: '',
       notes: '',
       status: 'In Stock'
-    });
+    }));
   };
 
   const handleFilterChange = (e) => {
@@ -332,19 +343,53 @@ export default function StoneInventoryApp() {
 
 
 
-  const generatePalletPDF = () => {
+  const buildPdfHtml = ({ title, subtitle, headers, rows }) => {
+    const headersHtml = headers.map((header) => `<th style="border:1px solid #ddd;padding:6px;background:#f3f4f6">${header}</th>`).join('');
+    const rowsHtml = rows.map((row) => (
+      `<tr>${row.map((cell) => `<td style="border:1px solid #ddd;padding:6px">${cell}</td>`).join('')}</tr>`
+    )).join('');
+
+    return `
+      <div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;padding:16px;color:#111">
+        <h2 style="text-align:center;margin:0 0 8px 0">${title}</h2>
+        <p style="text-align:center;margin:0 0 12px 0">${subtitle}</p>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center">
+          <thead><tr>${headersHtml}</tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>
+    `;
+  };
+
+  const exportHtmlPdf = async ({ htmlContent, fileName }) => {
+    const container = document.createElement('div');
+    container.style.position = 'fixed';
+    container.style.left = '-99999px';
+    container.style.top = '0';
+    container.style.width = '1120px';
+    container.innerHTML = htmlContent;
+    document.body.appendChild(container);
+
+    try {
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      await doc.html(container, {
+        html2canvas: { scale: 0.8, useCORS: true },
+        margin: [20, 20, 20, 20],
+        autoPaging: 'text',
+      });
+      doc.save(fileName);
+    } finally {
+      document.body.removeChild(container);
+    }
+  };
+
+  const generatePalletPDF = async () => {
     if (!palletDetails || palletDetails.stones.length === 0) {
-      alert('No pallet data to export');
+      alert('داده‌ای برای خروجی PDF کارت پالت وجود ندارد.');
       return;
     }
 
-    const doc = new jsPDF();
-    doc.setFontSize(16);
-    doc.text(`Pallet Card: ${palletDetails.palletNumber}`, 105, 20, { align: 'center' });
-    doc.setFontSize(12);
-    doc.text(`Total Area: ${Number(palletDetails.totalArea).toFixed(2)} m²`, 105, 30, { align: 'center' });
-
-    const tableData = palletDetails.stones.map((stone, index) => [
+    const rows = palletDetails.stones.map((stone, index) => ([
       index + 1,
       stone.type,
       Number(stone.thickness).toFixed(2),
@@ -352,94 +397,68 @@ export default function StoneInventoryApp() {
       Number(stone.width).toFixed(2),
       stone.quantity,
       Number(stone.area).toFixed(2),
-    ]);
+    ]));
 
-    doc.autoTable({
-      startY: 40,
-      head: [['#', 'Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)']],
-      body: tableData,
-      styles: { fontSize: 9 },
-      headStyles: { fillColor: [40, 40, 40] }
+    const htmlContent = buildPdfHtml({
+      title: `کارت پالت: ${palletDetails.palletNumber}`,
+      subtitle: `متراژ کل: ${Number(palletDetails.totalArea).toFixed(2)} متر مربع`,
+      headers: ['ردیف', 'نوع سنگ', 'ضخامت (متر)', 'طول (متر)', 'عرض (متر)', 'تعداد', 'متراژ (متر مربع)'],
+      rows,
     });
 
-    doc.save(`pallet-${palletDetails.palletNumber}.pdf`);
+    await exportHtmlPdf({ htmlContent, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
   };
 
-  const generateSearchPDF = () => {
+  const generateSearchPDF = async () => {
       if (filteredStones.length === 0) {
-        alert('No stones match the current filters');
+        alert('هیچ سنگی با فیلترهای انتخابی پیدا نشد.');
         return;
       }
 
-      const doc = new jsPDF();
-      doc.setFontSize(16);
-      doc.text('Search Results', 105, 20, { align: 'center' });
-      doc.setFontSize(12);
-      doc.text(`Total Area: ${totalFilteredArea} m²`, 105, 30, { align: 'center' });
-      doc.text(`Total Stones: ${filteredStones.length}`, 105, 40, { align: 'center' });
+      const rows = filteredStones.map(stone => [
+        stone.type,
+        stone.cutCode,
+        stone.palletNumber,
+        stone.grade,
+        Number(stone.thickness).toFixed(2),
+        Number(stone.length).toFixed(2),
+        Number(stone.width).toFixed(2),
+        stone.quantity,
+        Number(stone.area).toFixed(2),
+        stone.invoiceNumber || '-',
+        stone.invoiceNumber ? 'فروخته شده' : 'در انبار',
+      ]);
 
-      const palletGroups = prepareSearchResults(filteredStones);
-      let startY = 50;
-
-      palletGroups.forEach((palletGroup, index) => {
-        doc.setFontSize(12);
-        doc.text(`Pallet: ${palletGroup.palletNumber} (Total Area: ${palletGroup.totalArea.toFixed(2)} m²)`, 10, startY);
-        startY += 10;
-
-        const tableData = palletGroup.stones.map(stone => [
-          stone.type,
-          stone.cutCode,
-          stone.grade,
-          stone.thickness.toFixed(2),
-          stone.length.toFixed(2),
-          stone.width.toFixed(2),
-          stone.quantity,
-          stone.area.toFixed(2),
-          stone.invoiceNumber || '-',
-          stone.invoiceNumber ? 'Sold' : 'In Stock'
-        ]);
-
-        doc.autoTable({
-          startY: startY,
-          head: [['Type', 'Cut Code', 'Grade', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)', 'Invoice', 'Status']],
-          body: tableData,
-          styles: { fontSize: 8 },
-          headStyles: { fillColor: [40, 40, 40] }
-        });
-
-        startY = doc.lastAutoTable.finalY + 10;
+      const htmlContent = buildPdfHtml({
+        title: 'گزارش جستجو',
+        subtitle: `تعداد: ${filteredStones.length} | متراژ کل: ${totalFilteredArea} متر مربع`,
+        headers: ['نوع سنگ', 'شماره برش', 'شماره پالت', 'درجه', 'ضخامت', 'طول', 'عرض', 'تعداد', 'متراژ', 'شماره فاکتور', 'وضعیت'],
+        rows,
       });
 
-      doc.save(`Search_Results_${new Date().toISOString().slice(0, 10)}.pdf`);
+      await exportHtmlPdf({ htmlContent, fileName: `Search_Results_${new Date().toISOString().slice(0, 10)}.pdf` });
     };
 
  
-    const generatePalletCardPDF = (palletNumber, stones, totalArea) => {
-      const doc = new jsPDF();
-      doc.setFontSize(16);
-      doc.text(`Pallet Card: ${palletNumber}`, 105, 20, { align: 'center' });
-      doc.setFontSize(12);
-      doc.text(`Total Area: ${totalArea.toFixed(2)} m²`, 105, 30, { align: 'center' });
-
-      const tableData = stones.map((stone, index) => [
+    const generatePalletCardPDF = async (palletNumber, stones, totalArea) => {
+      const rows = stones.map((stone, index) => [
         index + 1,
         stone.type,
-        stone.thickness.toFixed(2),
-        stone.length.toFixed(2),
-        stone.width.toFixed(2),
+        Number(stone.thickness).toFixed(2),
+        Number(stone.length).toFixed(2),
+        Number(stone.width).toFixed(2),
         stone.quantity,
-        stone.area.toFixed(2)
+        Number(stone.area).toFixed(2),
       ]);
 
-      doc.autoTable({
-        startY: 40,
-        head: [['#', 'Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)']],
-        body: tableData,
-        styles: { fontSize: 10 },
-        headStyles: { fillColor: [40, 40, 40] }
+      const htmlContent = buildPdfHtml({
+        title: `کارت پالت: ${palletNumber}`,
+        subtitle: `متراژ کل: ${Number(totalArea).toFixed(2)} متر مربع`,
+        headers: ['ردیف', 'نوع سنگ', 'ضخامت (متر)', 'طول (متر)', 'عرض (متر)', 'تعداد', 'متراژ (متر مربع)'],
+        rows,
       });
 
-      doc.save(`Pallet_Card_${palletNumber}.pdf`);
+      await exportHtmlPdf({ htmlContent, fileName: `Pallet_Card_${palletNumber}.pdf` });
     };
 
 
@@ -456,7 +475,7 @@ export default function StoneInventoryApp() {
     if (stoneToEdit) {
       setFormData({ ...stoneToEdit });
       setStones(stones.filter(stone => stone.id !== id));
-      
+      setActiveTab('input');
     }
   };
 
@@ -544,17 +563,10 @@ export default function StoneInventoryApp() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white p-4">
-      <h1 className="text-2xl font-bold mb-6 text-center text-blue-400">Stone Inventory Management</h1>
+      <h1 className="text-2xl font-bold mb-6 text-center text-blue-400">مدیریت موجودی سنگ</h1>
 
-      <Tabs defaultValue="input">
-        <div className="mb-6 grid grid-cols-4 gap-2 bg-gray-800 p-1 rounded-lg">
-          <TabsContent value="input"><button className="px-4 py-2 rounded-md text-sm font-medium bg-blue-700">Form</button></TabsContent>
-          <TabsContent value="search"><button className="px-4 py-2 rounded-md text-sm font-medium bg-gray-700 hover:bg-gray-600">Search & Review</button></TabsContent>
-          <TabsContent value="pallet"><button className="px-4 py-2 rounded-md text-sm font-medium bg-gray-700 hover:bg-gray-600">Pallet Card</button></TabsContent>
-          <TabsContent value="types"><button className="px-4 py-2 rounded-md text-sm font-medium bg-gray-700 hover:bg-gray-600">Stone Types</button></TabsContent>
-        </div>
-
-        <TabsContent value="input">
+      <Tabs defaultValue="input" value={activeTab} onValueChange={setActiveTab}>
+        <TabsContent value="input" label="فرم ورود اطلاعات">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
             <h2 className="text-xl font-semibold mb-4 text-blue-300">Stone Information Form</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -697,7 +709,7 @@ export default function StoneInventoryApp() {
           </div>
         </TabsContent>
 
-        <TabsContent value="search">
+        <TabsContent value="search" label="جستجو و بازبینی">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
             <h2 className="text-xl font-semibold mb-4 text-blue-300">Search & Review Stones</h2>
 
@@ -888,7 +900,7 @@ export default function StoneInventoryApp() {
         </TabsContent>
 
 
-        <TabsContent value="pallet">
+        <TabsContent value="pallet" label="کارت پالت">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
             <h2 className="text-xl font-semibold mb-4 text-blue-300">Pallet Card</h2>
 
@@ -952,7 +964,7 @@ export default function StoneInventoryApp() {
           </div>
         </TabsContent>
 
-        <TabsContent value="types">
+        <TabsContent value="types" label="انواع سنگ">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
             <h2 className="text-xl font-semibold mb-4 text-blue-300">Stone Types Management</h2>
 

@@ -148,6 +148,17 @@ export default function StoneInventoryApp() {
           setStones(data.stones || []);
           setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
         }
+        return;
+      }
+
+      const raw = localStorage.getItem('stone-inventory-data');
+      if (!raw) return;
+      try {
+        const data = JSON.parse(raw);
+        setStones(data.stones || []);
+        setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
+      } catch {
+        // ignore invalid local data
       }
     };
     loadData();
@@ -156,11 +167,16 @@ export default function StoneInventoryApp() {
   // ذخیره‌سازی داده‌ها
   useEffect(() => {
     const saveData = async () => {
+      const dataToSave = { stones, stoneTypes };
+
       if (window.electronAPI) {
-        const dataToSave = { stones, stoneTypes };
         await window.electronAPI.saveData(dataToSave);
+        return;
       }
+
+      localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
     };
+
     const interval = setInterval(saveData, 5000); // ذخیره‌سازی داده‌ها هر 5 ثانیه
     return () => clearInterval(interval);
   }, [stones, stoneTypes]);

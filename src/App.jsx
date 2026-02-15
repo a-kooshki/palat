@@ -344,6 +344,28 @@ export default function StoneInventoryApp() {
 
 
 
+
+  const normalizePdfText = (value) => {
+    if (value === null || value === undefined) return '';
+    const text = String(value);
+
+    // Handle mojibake cases like: þåþŽû...
+    const hasExtendedLatin = /[À-ÿ]/.test(text);
+    if (hasExtendedLatin) {
+      try {
+        const bytes = Uint8Array.from(text, (ch) => ch.charCodeAt(0));
+        const decoded = new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+        if (/[؀-ۿ]/.test(decoded)) {
+          return decoded;
+        }
+      } catch {
+        // keep original text
+      }
+    }
+
+    return text;
+  };
+
   const loadLogoDataUrl = async () => {
     const logoCandidates = ['./logo.png', '/logo.png', './build/logo.png'];
 
@@ -371,9 +393,9 @@ export default function StoneInventoryApp() {
   };
 
   const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl }) => {
-    const headersHtml = headers.map((header) => `<th style="border:1px solid #ddd;padding:6px;background:#f3f4f6">${header}</th>`).join('');
+    const headersHtml = headers.map((header) => `<th style="border:1px solid #ddd;padding:6px;background:#f3f4f6">${normalizePdfText(header)}</th>`).join('');
     const rowsHtml = rows.map((row) => (
-      `<tr>${row.map((cell) => `<td style="border:1px solid #ddd;padding:6px">${cell}</td>`).join('')}</tr>`
+      `<tr>${row.map((cell) => `<td style="border:1px solid #ddd;padding:6px">${normalizePdfText(cell)}</td>`).join('')}</tr>`
     )).join('');
 
     const logoHtml = logoDataUrl
@@ -381,11 +403,11 @@ export default function StoneInventoryApp() {
       : '';
 
     return `
-      <div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;padding:16px;color:#111;background:#fff">
+      <div dir="rtl" style="font-family:'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif;padding:16px;color:#111;background:#fff">
         ${logoHtml}
-        <h2 style="text-align:center;margin:0 0 8px 0">${title}</h2>
-        <p style="text-align:center;margin:0 0 12px 0">${subtitle}</p>
-        <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center">
+        <h2 style="text-align:center;margin:0 0 8px 0">${normalizePdfText(title)}</h2>
+        <p style="text-align:center;margin:0 0 12px 0">${normalizePdfText(subtitle)}</p>
+        <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center;direction:rtl">
           <thead><tr>${headersHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>

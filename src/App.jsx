@@ -3,6 +3,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
+import html2canvas from 'html2canvas';
 
 // Register ChartJS components
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -343,14 +344,45 @@ export default function StoneInventoryApp() {
 
 
 
-  const buildPdfHtml = ({ title, subtitle, headers, rows }) => {
+  const loadLogoDataUrl = async () => {
+    const logoCandidates = ['./logo.png', '/logo.png', './build/logo.png'];
+
+    for (const logoPath of logoCandidates) {
+      try {
+        const response = await fetch(logoPath);
+        if (!response.ok) continue;
+
+        const blob = await response.blob();
+        const dataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+
+        if (typeof dataUrl === 'string') {
+          return dataUrl;
+        }
+      } catch {
+        // ignore and try next path
+      }
+    }
+
+    return null;
+  };
+
+  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl }) => {
     const headersHtml = headers.map((header) => `<th style="border:1px solid #ddd;padding:6px;background:#f3f4f6">${header}</th>`).join('');
     const rowsHtml = rows.map((row) => (
       `<tr>${row.map((cell) => `<td style="border:1px solid #ddd;padding:6px">${cell}</td>`).join('')}</tr>`
     )).join('');
 
+    const logoHtml = logoDataUrl
+      ? `<div style="display:flex;justify-content:center;margin-bottom:12px"><img src="${logoDataUrl}" alt="logo" style="height:70px;object-fit:contain" /></div>`
+      : '';
+
     return `
-      <div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;padding:16px;color:#111">
+      <div dir="rtl" style="font-family:Tahoma,Arial,sans-serif;padding:16px;color:#111;background:#fff">
+        ${logoHtml}
         <h2 style="text-align:center;margin:0 0 8px 0">${title}</h2>
         <p style="text-align:center;margin:0 0 12px 0">${subtitle}</p>
         <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center">
@@ -364,19 +396,48 @@ export default function StoneInventoryApp() {
   const exportHtmlPdf = async ({ htmlContent, fileName }) => {
     const container = document.createElement('div');
     container.style.position = 'fixed';
-    container.style.left = '-99999px';
-    container.style.top = '0';
-    container.style.width = '1120px';
+    container.style.inset = '0';
+    container.style.opacity = '0';
+    container.style.pointerEvents = 'none';
+    container.style.width = '1200px';
+    container.style.background = '#ffffff';
     container.innerHTML = htmlContent;
     document.body.appendChild(container);
 
     try {
-      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
-      await doc.html(container, {
-        html2canvas: { scale: 0.8, useCORS: true },
-        margin: [20, 20, 20, 20],
-        autoPaging: 'text',
+      const canvas = await html2canvas(container, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: '#ffffff',
       });
+
+      const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 20;
+      const printableWidth = pageWidth - margin * 2;
+      const printableHeight = pageHeight - margin * 2;
+
+      const totalPages = Math.ceil(canvas.height / ((canvas.width / printableWidth) * printableHeight));
+
+      for (let page = 0; page < totalPages; page += 1) {
+        if (page > 0) doc.addPage();
+
+        const sourceY = page * ((canvas.width / printableWidth) * printableHeight);
+        const sourceHeight = Math.min((canvas.width / printableWidth) * printableHeight, canvas.height - sourceY);
+
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = sourceHeight;
+
+        const ctx = pageCanvas.getContext('2d');
+        ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
+
+        const pageImage = pageCanvas.toDataURL('image/png');
+        const renderedHeight = (sourceHeight * printableWidth) / canvas.width;
+        doc.addImage(pageImage, 'PNG', margin, margin, printableWidth, renderedHeight);
+      }
+
       doc.save(fileName);
     } finally {
       document.body.removeChild(container);
@@ -399,11 +460,14 @@ export default function StoneInventoryApp() {
       Number(stone.area).toFixed(2),
     ]));
 
+    const logoDataUrl = await loadLogoDataUrl();
+
     const htmlContent = buildPdfHtml({
       title: `کارت پالت: ${palletDetails.palletNumber}`,
       subtitle: `متراژ کل: ${Number(palletDetails.totalArea).toFixed(2)} متر مربع`,
       headers: ['ردیف', 'نوع سنگ', 'ضخامت (متر)', 'طول (متر)', 'عرض (متر)', 'تعداد', 'متراژ (متر مربع)'],
       rows,
+      logoDataUrl,
     });
 
     await exportHtmlPdf({ htmlContent, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
@@ -451,11 +515,14 @@ export default function StoneInventoryApp() {
         Number(stone.area).toFixed(2),
       ]);
 
+      const logoDataUrl = await loadLogoDataUrl();
+
       const htmlContent = buildPdfHtml({
         title: `کارت پالت: ${palletNumber}`,
         subtitle: `متراژ کل: ${Number(totalArea).toFixed(2)} متر مربع`,
         headers: ['ردیف', 'نوع سنگ', 'ضخامت (متر)', 'طول (متر)', 'عرض (متر)', 'تعداد', 'متراژ (متر مربع)'],
         rows,
+        logoDataUrl,
       });
 
       await exportHtmlPdf({ htmlContent, fileName: `Pallet_Card_${palletNumber}.pdf` });

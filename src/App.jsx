@@ -139,46 +139,68 @@ export default function StoneInventoryApp() {
   const [palletDetails, setPalletDetails] = useState(null);
   const [palletNumberInput, setPalletNumberInput] = useState('');
 
-  // بارگذاری داده‌ها
-  useEffect(() => {
-    const loadData = async () => {
-      if (window.electronAPI) {
-        const data = await window.electronAPI.loadData();
-        if (data) {
-          setStones(data.stones || []);
-          setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
-        }
-        return;
-      }
-
-      const raw = localStorage.getItem('stone-inventory-data');
-      if (!raw) return;
-      try {
-        const data = JSON.parse(raw);
-        setStones(data.stones || []);
-        setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
-      } catch {
-        // ignore invalid local data
-      }
-    };
-    loadData();
-  }, []);
-
-  // ذخیره‌سازی داده‌ها
-  useEffect(() => {
-    const saveData = async () => {
-      const dataToSave = { stones, stoneTypes };
-
+  const persistData = async (dataToSave) => {
+    try {
       if (window.electronAPI) {
         await window.electronAPI.saveData(dataToSave);
         return;
       }
-
       localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
+    } catch (error) {
+      console.error('Failed to save inventory data:', error);
+    }
+  };
+
+  // بارگذاری داده‌ها
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        if (window.electronAPI) {
+          const data = await window.electronAPI.loadData();
+          if (data) {
+            setStones(data.stones || []);
+            setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
+          }
+          return;
+        }
+
+        const raw = localStorage.getItem('stone-inventory-data');
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        setStones(data.stones || []);
+        setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
+      } catch (error) {
+        console.error('Failed to load inventory data:', error);
+      }
     };
 
-    const interval = setInterval(saveData, 5000); // ذخیره‌سازی داده‌ها هر 5 ثانیه
-    return () => clearInterval(interval);
+    loadData();
+  }, []);
+
+  // ذخیره‌سازی سریع بعد از تغییرات
+  useEffect(() => {
+    const dataToSave = { stones, stoneTypes };
+    const timeout = setTimeout(() => {
+      persistData(dataToSave);
+    }, 300);
+
+    return () => clearTimeout(timeout);
+  }, [stones, stoneTypes]);
+
+  // ذخیره‌سازی نهایی هنگام بستن/ریلـود
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const dataToSave = { stones, stoneTypes };
+
+      if (window.electronAPI) {
+        window.electronAPI.saveData(dataToSave);
+      } else {
+        localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
+      }
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [stones, stoneTypes]);
 
   const handleFormChange = (e) => {

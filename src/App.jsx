@@ -4,6 +4,7 @@ import 'jspdf-autotable';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
 import html2canvas from 'html2canvas';
+import QRCode from 'qrcode';
 
 // Register ChartJS components
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -134,7 +135,7 @@ export default function StoneInventoryApp() {
     area: '',
     invoiceNumber: '',
     notes: '',
-    status: 'In Stock'
+    status: 'در انبار'
   });
   const [stones, setStones] = useState([]);
   const [filters, setFilters] = useState({
@@ -215,10 +216,35 @@ export default function StoneInventoryApp() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [stones, stoneTypes]);
 
+
+  const normalizePalletInput = (rawValue) => {
+    const cleaned = String(rawValue || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const letterMatch = cleaned.match(/[A-Z]/);
+    if (!letterMatch) return '';
+
+    const letter = letterMatch[0];
+    const rest = cleaned.slice(cleaned.indexOf(letter) + 1);
+    const digits = rest.replace(/[^0-9]/g, '').slice(0, 3);
+
+    return `${letter}${digits}`;
+  };
+
+  const formatPalletOnBlur = (rawValue) => {
+    const normalized = normalizePalletInput(rawValue);
+    const match = normalized.match(/^([A-Z])(\d{1,3})$/);
+    if (!match) return '';
+    return `${match[1]}-${match[2]}`;
+  };
+
   const handleFormChange = (e) => {
     const { name, value } = e.target;
 
     if (e.type === 'change') {
+      if (name === 'palletNumber') {
+        const normalized = normalizePalletInput(value);
+        setFormData(prev => ({ ...prev, palletNumber: normalized }));
+        return;
+      }
       setFormData(prev => ({ ...prev, [name]: value }));
     } else if (e.type === 'blur') {
       setFormData(prev => {
@@ -246,8 +272,7 @@ export default function StoneInventoryApp() {
         }
 
         if (name === 'palletNumber') {
-          const formatted = value.replace(/([A-Z])(\d+)/, '$1-$2');
-          newData.palletNumber = formatted;
+          newData.palletNumber = formatPalletOnBlur(value);
         }
 
         return newData;
@@ -257,6 +282,12 @@ export default function StoneInventoryApp() {
 
   const handleSubmit = (e) => {
     e.preventDefault();
+
+    if (!/^[A-Z]-\d{1,3}$/.test(formData.palletNumber)) {
+      alert('فرمت شماره پالت باید مثل A-123 باشد.');
+      return;
+    }
+
     const newStone = {
       ...formData,
       id: Date.now().toString(),
@@ -271,20 +302,20 @@ export default function StoneInventoryApp() {
   };
 
   const resetForm = () => {
-    setFormData(prev => ({
-      type: prev.type,
-      cutCode: prev.cutCode,
-      palletNumber: prev.palletNumber,
-      grade: prev.grade,
-      thickness: prev.thickness,
+    setFormData({
+      type: '',
+      cutCode: '',
+      palletNumber: '',
+      grade: '',
+      thickness: '',
       length: '',
       width: '',
       quantity: '',
       area: '',
       invoiceNumber: '',
       notes: '',
-      status: 'In Stock'
-    }));
+      status: 'در انبار'
+    });
   };
 
   const handleFilterChange = (e) => {
@@ -337,7 +368,7 @@ export default function StoneInventoryApp() {
         totalArea: calculatePalletArea(palletNumberInput)
       });
     } else {
-      alert(`No stones found for pallet number: ${palletNumberInput}`);
+      alert(`سنگی برای شماره پالت پیدا نشد: ${palletNumberInput}`);
       setPalletDetails(null);
     }
   };
@@ -392,19 +423,39 @@ export default function StoneInventoryApp() {
     return null;
   };
 
-  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl }) => {
+
+  const loadQrDataUrl = async () => {
+    try {
+      return await QRCode.toDataURL('agse.ir', {
+        width: 110,
+        margin: 1,
+        color: { dark: '#000000', light: '#FFFFFF' },
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl, qrDataUrl }) => {
     const headersHtml = headers.map((header) => `<th style="border:1px solid #ddd;padding:6px;background:#f3f4f6">${normalizePdfText(header)}</th>`).join('');
     const rowsHtml = rows.map((row) => (
       `<tr>${row.map((cell) => `<td style="border:1px solid #ddd;padding:6px">${normalizePdfText(cell)}</td>`).join('')}</tr>`
     )).join('');
 
     const logoHtml = logoDataUrl
-      ? `<div style="display:flex;justify-content:center;margin-bottom:12px"><img src="${logoDataUrl}" alt="logo" style="height:70px;object-fit:contain" /></div>`
-      : '';
+      ? `<img src="${logoDataUrl}" alt="logo" style="height:64px;object-fit:contain" />`
+      : '<div style="height:64px;width:120px"></div>';
+
+    const qrHtml = qrDataUrl
+      ? `<img src="${qrDataUrl}" alt="qr" style="height:64px;width:64px;object-fit:contain" />`
+      : '<div style="height:64px;width:64px"></div>';
 
     return `
       <div dir="rtl" style="font-family:'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif;padding:16px;color:#111;background:#fff">
-        ${logoHtml}
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;direction:ltr;margin-bottom:8px">
+          <div>${logoHtml}</div>
+          <div>${qrHtml}</div>
+        </div>
         <h2 style="text-align:center;margin:0 0 8px 0">${normalizePdfText(title)}</h2>
         <p style="text-align:center;margin:0 0 12px 0">${normalizePdfText(subtitle)}</p>
         <table style="width:100%;border-collapse:collapse;font-size:12px;text-align:center;direction:rtl">
@@ -483,13 +534,15 @@ export default function StoneInventoryApp() {
     ]));
 
     const logoDataUrl = await loadLogoDataUrl();
+    const qrDataUrl = await loadQrDataUrl();
 
     const htmlContent = buildPdfHtml({
-      title: `کارت پالت: ${palletDetails.palletNumber}`,
-      subtitle: `متراژ کل: ${Number(palletDetails.totalArea).toFixed(2)} متر مربع`,
-      headers: ['ردیف', 'نوع سنگ', 'ضخامت (متر)', 'طول (متر)', 'عرض (متر)', 'تعداد', 'متراژ (متر مربع)'],
+      title: `Pallet Card: ${palletDetails.palletNumber}`,
+      subtitle: `Total Area: ${Number(palletDetails.totalArea).toFixed(2)} m²`,
+      headers: ['Row', 'Stone Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)'],
       rows,
       logoDataUrl,
+      qrDataUrl,
     });
 
     await exportHtmlPdf({ htmlContent, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
@@ -512,17 +565,22 @@ export default function StoneInventoryApp() {
         stone.quantity,
         Number(stone.area).toFixed(2),
         stone.invoiceNumber || '-',
-        stone.invoiceNumber ? 'فروخته شده' : 'در انبار',
+        stone.invoiceNumber ? 'Sold' : 'In Stock',
       ]);
 
+      const logoDataUrl = await loadLogoDataUrl();
+      const qrDataUrl = await loadQrDataUrl();
+
       const htmlContent = buildPdfHtml({
-        title: 'گزارش جستجو',
-        subtitle: `تعداد: ${filteredStones.length} | متراژ کل: ${totalFilteredArea} متر مربع`,
-        headers: ['نوع سنگ', 'شماره برش', 'شماره پالت', 'درجه', 'ضخامت', 'طول', 'عرض', 'تعداد', 'متراژ', 'شماره فاکتور', 'وضعیت'],
+        title: 'Search Report',
+        subtitle: `Count: ${filteredStones.length} | Total Area: ${totalFilteredArea} m²`,
+        headers: ['Stone Type', 'Cut Code', 'Pallet No', 'Grade', 'Thickness', 'Length', 'Width', 'Qty', 'Area', 'Invoice', 'Status'],
         rows,
+        logoDataUrl,
+        qrDataUrl,
       });
 
-      await exportHtmlPdf({ htmlContent, fileName: `Search_Results_${new Date().toISOString().slice(0, 10)}.pdf` });
+      await exportHtmlPdf({ htmlContent, fileName: `Search_Report_${new Date().toISOString().slice(0, 10)}.pdf` });
     };
 
  
@@ -538,13 +596,15 @@ export default function StoneInventoryApp() {
       ]);
 
       const logoDataUrl = await loadLogoDataUrl();
+      const qrDataUrl = await loadQrDataUrl();
 
       const htmlContent = buildPdfHtml({
-        title: `کارت پالت: ${palletNumber}`,
-        subtitle: `متراژ کل: ${Number(totalArea).toFixed(2)} متر مربع`,
-        headers: ['ردیف', 'نوع سنگ', 'ضخامت (متر)', 'طول (متر)', 'عرض (متر)', 'تعداد', 'متراژ (متر مربع)'],
+        title: `Pallet Card: ${palletNumber}`,
+        subtitle: `Total Area: ${Number(totalArea).toFixed(2)} m²`,
+        headers: ['Row', 'Stone Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)'],
         rows,
         logoDataUrl,
+        qrDataUrl,
       });
 
       await exportHtmlPdf({ htmlContent, fileName: `Pallet_Card_${palletNumber}.pdf` });
@@ -569,7 +629,7 @@ export default function StoneInventoryApp() {
   };
 
   const deleteStone = (id) => {
-    if (window.confirm('Are you sure you want to delete this stone?')) {
+    if (window.confirm('از حذف این سنگ مطمئن هستید؟')) {
       setStones(stones.filter(stone => stone.id !== id));
     }
   };
@@ -602,14 +662,14 @@ export default function StoneInventoryApp() {
     labels: chartData.labels,
     datasets: [
       {
-        label: 'Total Area (m²)',
+        label: 'متراژ کل (متر مربع)',
         data: chartData.totalAreas,
         backgroundColor: 'rgba(59, 130, 246, 0.8)',
         borderColor: 'rgba(59, 130, 246, 1)',
         borderWidth: 1,
       },
       {
-        label: 'Sold Area (m²)',
+        label: 'متراژ فروخته‌شده (متر مربع)',
         data: chartData.soldAreas,
         backgroundColor: 'rgba(220, 38, 38, 0.8)',
         borderColor: 'rgba(220, 38, 38, 1)',
@@ -626,7 +686,7 @@ export default function StoneInventoryApp() {
       },
       title: {
         display: true,
-        text: 'Stone Inventory Areas',
+        text: 'متراژ انواع سنگ',
         color: '#ffffff'
       },
     },
@@ -657,13 +717,13 @@ export default function StoneInventoryApp() {
       <Tabs defaultValue="input" value={activeTab} onValueChange={setActiveTab}>
         <TabsContent value="input" label="فرم ورود اطلاعات">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-            <h2 className="text-xl font-semibold mb-4 text-blue-300">Stone Information Form</h2>
+            <h2 className="text-xl font-semibold mb-4 text-blue-300">فرم اطلاعات سنگ</h2>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-sm font-medium mb-1">Stone Type</label>
+                  <label className="block text-sm font-medium mb-1">نوع سنگ</label>
                   <Select name="type" value={formData.type} onChange={(value) => setFormData(prev => ({...prev, type: value}))} required>
-                    <option value="" disabled>Select stone type</option>
+                    <option value="" disabled>نوع سنگ را انتخاب کنید</option>
                     {stoneTypes.map(type => (
                       <option key={type} value={type}>{type}</option>
                     ))}
@@ -671,7 +731,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Cut Code (0-999)</label>
+                  <label className="block text-sm font-medium mb-1">شماره برش (0 تا 999)</label>
                   <Input
                     type="number"
                     name="cutCode"
@@ -684,18 +744,21 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Pallet Number (e.g., A-123)</label>
+                  <label className="block text-sm font-medium mb-1">شماره پالت (مثال: A-123)</label>
                   <Input
                     name="palletNumber"
                     value={formData.palletNumber}
                     onChange={handleFormChange}
-                    placeholder="Enter letter and number (e.g., A123)"
+                    onBlur={handleFormChange}
+                    placeholder="A123"
+                    pattern="[A-Z]-?[0-9]{1,3}"
+                    title="فرمت معتبر: A-123 یا Z-1"
                     required
                   />
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Grade</label>
+                  <label className="block text-sm font-medium mb-1">درجه</label>
                   <Input
                     name="grade"
                     value={formData.grade}
@@ -706,7 +769,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Thickness (cm)</label>
+                  <label className="block text-sm font-medium mb-1">ضخامت (سانتی‌متر)</label>
                   <Input
                     type="number"
                     name="thickness"
@@ -718,7 +781,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Length (cm)</label>
+                  <label className="block text-sm font-medium mb-1">طول (سانتی‌متر)</label>
                   <Input
                     type="number"
                     name="length"
@@ -731,7 +794,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Width (cm)</label>
+                  <label className="block text-sm font-medium mb-1">عرض (سانتی‌متر)</label>
                   <Input
                     type="number"
                     name="width"
@@ -744,7 +807,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Quantity</label>
+                  <label className="block text-sm font-medium mb-1">تعداد</label>
                   <Input
                     type="number"
                     name="quantity"
@@ -757,7 +820,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Area (m²)</label>
+                  <label className="block text-sm font-medium mb-1">متراژ (متر مربع)</label>
                   <Input
                     type="text"
                     name="area"
@@ -768,7 +831,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Invoice Number (Optional)</label>
+                  <label className="block text-sm font-medium mb-1">شماره فاکتور (اختیاری)</label>
                   <Input
                     name="invoiceNumber"
                     value={formData.invoiceNumber}
@@ -777,7 +840,7 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">Notes</label>
+                  <label className="block text-sm font-medium mb-1">یادداشت</label>
                   <Input
                     name="notes"
                     value={formData.notes}
@@ -788,10 +851,10 @@ export default function StoneInventoryApp() {
 
               <div className="flex justify-end space-x-4 mt-6">
                 <Button type="button" onClick={resetForm} className="bg-gray-600 hover:bg-gray-500">
-                  Reset
+                  پاک کردن
                 </Button>
                 <Button type="submit" className="bg-blue-600 hover:bg-blue-500">
-                  Save Stone
+                  ذخیره سنگ
                 </Button>
               </div>
             </form>
@@ -800,7 +863,7 @@ export default function StoneInventoryApp() {
 
         <TabsContent value="search" label="جستجو و بازبینی">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-            <h2 className="text-xl font-semibold mb-4 text-blue-300">Search & Review Stones</h2>
+            <h2 className="text-xl font-semibold mb-4 text-blue-300">جستجو و بازبینی سنگ‌ها</h2>
 
             {/* فیلترها */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
@@ -813,11 +876,11 @@ export default function StoneInventoryApp() {
                   className="h-4 w-4 rounded border-gray-600 bg-gray-700 focus:ring-blue-500 ml-2"
                   id="showSold"
                 />
-                <label htmlFor="showSold" className="text-sm font-medium">Show Sold Items</label>
+                <label htmlFor="showSold" className="text-sm font-medium">نمایش اقلام فروخته‌شده</label>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Stone Type</label>
+                <label className="block text-sm font-medium mb-1">نوع سنگ</label>
                 <Select name="type" value={filters.type} onChange={(value) => setFilters(prev => ({...prev, type: value}))}>
                   <option value="">All types</option>
                   {stoneTypes.map(type => (
@@ -827,7 +890,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Pallet Number</label>
+                <label className="block text-sm font-medium mb-1">شماره پالت</label>
                 <Input
                   name="palletNumber"
                   value={filters.palletNumber}
@@ -837,7 +900,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Grade</label>
+                <label className="block text-sm font-medium mb-1">درجه</label>
                 <Input
                   name="grade"
                   value={filters.grade}
@@ -849,7 +912,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Min Length (m)</label>
+                <label className="block text-sm font-medium mb-1">حداقل طول (متر)</label>
                 <Input
                   type="number"
                   name="minLength"
@@ -860,7 +923,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Max Length (m)</label>
+                <label className="block text-sm font-medium mb-1">حداکثر طول (متر)</label>
                 <Input
                   type="number"
                   name="maxLength"
@@ -871,7 +934,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Min Width (m)</label>
+                <label className="block text-sm font-medium mb-1">حداقل عرض (متر)</label>
                 <Input
                   type="number"
                   name="minWidth"
@@ -882,7 +945,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Max Width (m)</label>
+                <label className="block text-sm font-medium mb-1">حداکثر عرض (متر)</label>
                 <Input
                   type="number"
                   name="maxWidth"
@@ -893,7 +956,7 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-1">Invoice Number</label>
+                <label className="block text-sm font-medium mb-1">شماره فاکتور</label>
                 <Input
                   name="invoiceNumber"
                   value={filters.invoiceNumber}
@@ -904,21 +967,21 @@ export default function StoneInventoryApp() {
 
             <div className="mb-4 p-3 bg-gray-700 rounded-lg">
               <p className="font-semibold">
-                Total Area of Filtered Stones: <span className="text-blue-300">{totalFilteredArea} m²</span>
+                متراژ کل نتایج: <span className="text-blue-300">{totalFilteredArea} m²</span>
               </p>
               <p className="font-semibold">
-                Total Stones: <span className="text-blue-300">{filteredStones.length}</span>
+                تعداد کل سنگ‌ها: <span className="text-blue-300">{filteredStones.length}</span>
               </p>
             </div>
 
             <div className="mb-4 flex justify-end">
               <Button onClick={generateSearchPDF} className="bg-green-600 hover:bg-green-500">
-                Export to PDF
+                خروجی PDF
               </Button>
             </div>
 
             <div className="mb-6 bg-gray-700 p-4 rounded-lg">
-              <h3 className="text-lg font-semibold mb-2 text-blue-300">Inventory Overview</h3>
+              <h3 className="text-lg font-semibold mb-2 text-blue-300">نمای کلی موجودی</h3>
               <div className="h-64">
                 <Bar data={inventoryChartData} options={chartOptions} />
               </div>
@@ -930,31 +993,31 @@ export default function StoneInventoryApp() {
                 <div key={palletGroup.palletNumber} className="border border-gray-600 rounded-lg p-4 bg-gray-800">
                   <div className="flex justify-between items-center mb-2">
                     <h3 className="font-semibold text-lg text-blue-300">
-                      Pallet: {palletGroup.palletNumber}
-                      <span className="text-sm text-gray-300 mr-2">Total Area: {palletGroup.totalArea.toFixed(2)} m²</span>
+                      پالت: {palletGroup.palletNumber}
+                      <span className="text-sm text-gray-300 mr-2">متراژ کل: {palletGroup.totalArea.toFixed(2)} m²</span>
                     </h3>
                     <Button
                       onClick={() => generatePalletCardPDF(palletGroup.palletNumber, palletGroup.stones, palletGroup.totalArea)}
                       className="bg-green-600 hover:bg-green-500 px-3 py-1 text-xs"
                     >
-                      Print Pallet Card
+                      چاپ کارت پالت
                     </Button>
                   </div>
 
                   <Table>
                     <TableHeader>
                       <TableRow>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Cut Code</TableHead>
-                        <TableHead>Grade</TableHead>
-                        <TableHead>Thickness (m)</TableHead>
-                        <TableHead>Length (m)</TableHead>
-                        <TableHead>Width (m)</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Area (m²)</TableHead>
-                        <TableHead>Invoice</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableHead>نوع</TableHead>
+                        <TableHead>کد برش</TableHead>
+                        <TableHead>درجه</TableHead>
+                        <TableHead>ضخامت (متر)</TableHead>
+                        <TableHead>طول (متر)</TableHead>
+                        <TableHead>عرض (متر)</TableHead>
+                        <TableHead>تعداد</TableHead>
+                        <TableHead>متراژ (متر مربع)</TableHead>
+                        <TableHead>فاکتور</TableHead>
+                        <TableHead>وضعیت</TableHead>
+                        <TableHead>عملیات</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -969,13 +1032,13 @@ export default function StoneInventoryApp() {
                           <TableCell>{stone.quantity}</TableCell>
                           <TableCell>{stone.area.toFixed(2)}</TableCell>
                           <TableCell>{stone.invoiceNumber || '-'}</TableCell>
-                          <TableCell>{stone.invoiceNumber ? 'Sold' : 'In Stock'}</TableCell>
+                          <TableCell>{stone.invoiceNumber ? 'فروخته‌شده' : 'در انبار'}</TableCell>
                           <TableCell className="space-x-2">
                             <Button size="sm" onClick={() => editStone(stone.id) }  className="bg-yellow-600 hover:bg-yellow-500 px-2 py-1 text-xs">
-                              Edit
+                              ویرایش
                             </Button>
                             <Button size="sm" onClick={() => deleteStone(stone.id)} className="bg-red-600 hover:bg-red-500 px-2 py-1 text-xs">
-                              Delete
+                              حذف
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -991,12 +1054,12 @@ export default function StoneInventoryApp() {
 
         <TabsContent value="pallet" label="کارت پالت">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-            <h2 className="text-xl font-semibold mb-4 text-blue-300">Pallet Card</h2>
+            <h2 className="text-xl font-semibold mb-4 text-blue-300">کارت پالت</h2>
 
             <div className="mb-6">
               <div className="flex space-x-4">
                 <div className="flex-1">
-                  <label className="block text-sm font-medium mb-1">Pallet Number</label>
+                  <label className="block text-sm font-medium mb-1">شماره پالت</label>
                   <Input
                     value={palletNumberInput}
                     onChange={(e) => setPalletNumberInput(e.target.value)}
@@ -1004,7 +1067,7 @@ export default function StoneInventoryApp() {
                   />
                 </div>
                 <Button onClick={handlePalletSearch} className="mt-6 bg-blue-600 hover:bg-blue-500">
-                  Search
+                  جستجو
                 </Button>
               </div>
             </div>
@@ -1012,19 +1075,19 @@ export default function StoneInventoryApp() {
             {palletDetails && (
               <div className="space-y-4">
                 <div className="bg-gray-700 p-4 rounded-lg">
-                  <h3 className="font-semibold mb-2">Pallet: {palletDetails.palletNumber}</h3>
+                  <h3 className="font-semibold mb-2">پالت: {palletDetails.palletNumber}</h3>
                   <p className="mb-4">Total Area: {palletDetails.totalArea} m²</p>
 
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>#</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Thickness (m)</TableHead>
-                        <TableHead>Length (m)</TableHead>
-                        <TableHead>Width (m)</TableHead>
-                        <TableHead>Qty</TableHead>
-                        <TableHead>Area (m²)</TableHead>
+                        <TableHead>نوع</TableHead>
+                        <TableHead>ضخامت (متر)</TableHead>
+                        <TableHead>طول (متر)</TableHead>
+                        <TableHead>عرض (متر)</TableHead>
+                        <TableHead>تعداد</TableHead>
+                        <TableHead>متراژ (متر مربع)</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1044,7 +1107,7 @@ export default function StoneInventoryApp() {
 
                   <div className="mt-4 flex justify-end">
                     <Button onClick={generatePalletPDF} className="bg-green-600 hover:bg-green-500">
-                      Generate PDF
+                      ساخت PDF
                     </Button>
                   </div>
                 </div>
@@ -1055,17 +1118,17 @@ export default function StoneInventoryApp() {
 
         <TabsContent value="types" label="انواع سنگ">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-            <h2 className="text-xl font-semibold mb-4 text-blue-300">Stone Types Management</h2>
+            <h2 className="text-xl font-semibold mb-4 text-blue-300">نوع سنگs Management</h2>
 
             <div className="flex space-x-4 mb-6">
               <Input
                 value={newStoneType}
                 onChange={(e) => setNewStoneType(e.target.value)}
-                placeholder="Enter new stone type"
+                placeholder="نوع سنگ جدید"
                 className="flex-1"
               />
-              <Button onClick={addStoneType} className="bg-blue-600 hover:bg-blue-500">
-                Add Type
+              <Button onClick={addStoneنوع} className="bg-blue-600 hover:bg-blue-500">
+                Add نوع
               </Button>
             </div>
 
@@ -1073,8 +1136,8 @@ export default function StoneInventoryApp() {
               <TableHeader>
                 <TableRow>
                   <TableHead>#</TableHead>
-                  <TableHead>Stone Type</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>نوع سنگ</TableHead>
+                  <TableHead>عملیات</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -1086,10 +1149,10 @@ export default function StoneInventoryApp() {
                       <Button
                         size="sm"
                         onClick={() => {
-                          if (window.confirm('Are you sure you want to delete this stone type?')) {
+                          if (window.confirm('از حذف این نوع سنگ مطمئن هستید؟')) {
                             const stonesUsingType = stones.some(stone => stone.type === type);
                             if (stonesUsingType) {
-                              alert('Cannot delete: This stone type is in use by existing stones');
+                              alert('حذف ممکن نیست: این نوع سنگ در رکوردها استفاده شده است');
                               return;
                             }
                             setStoneTypes(stoneTypes.filter(t => t !== type));
@@ -1097,7 +1160,7 @@ export default function StoneInventoryApp() {
                         }}
                         className="bg-red-600 hover:bg-red-500 px-2 py-1 text-xs"
                       >
-                        Delete
+                        حذف
                       </Button>
                     </TableCell>
                   </TableRow>

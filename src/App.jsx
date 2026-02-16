@@ -266,7 +266,19 @@ export default function StoneInventoryApp() {
         setFormData(prev => ({ ...prev, palletNumber: normalized }));
         return;
       }
-      setFormData(prev => ({ ...prev, [name]: value }));
+
+      setFormData(prev => {
+        const newData = { ...prev, [name]: value };
+
+        if (name === 'length' || name === 'width' || name === 'quantity') {
+          const length = parseFloat(newData.length) || 0;
+          const width = parseFloat(newData.width) || 0;
+          const quantity = parseFloat(newData.quantity) || 0;
+          newData.area = (length * width * quantity).toFixed(2);
+        }
+
+        return newData;
+      });
     } else if (e.type === 'blur') {
       setFormData(prev => {
         const newData = { ...prev, [name]: value };
@@ -388,6 +400,18 @@ export default function StoneInventoryApp() {
     return '';
   })();
 
+
+  const getPalletInvoice = (palletNumber) => {
+    const invoices = [...new Set(
+      normalizedStones
+        .filter((stone) => stone.palletNumber === palletNumber)
+        .map((stone) => String(stone.invoiceNumber || '').trim())
+        .filter(Boolean)
+    )];
+
+    return invoices[0] || '';
+  };
+
   const handleFilterChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFilters(prev => {
@@ -402,11 +426,12 @@ export default function StoneInventoryApp() {
   };
 
   const filteredStones = normalizedStones.filter(stone => {
-    if (!filters.showSold && stone.invoiceNumber) return false;
+    const palletInvoice = getPalletInvoice(stone.palletNumber);
+    if (!filters.showSold && palletInvoice) return false;
     if (filters.type && stone.type !== filters.type) return false;
     if (filters.palletNumber && !stone.palletNumber.includes(filters.palletNumber)) return false;
     if (filters.grade && stone.grade !== filters.grade) return false;
-    if (filters.invoiceNumber && stone.invoiceNumber !== filters.invoiceNumber) return false;
+    if (filters.invoiceNumber && palletInvoice !== filters.invoiceNumber) return false;
 
     const length = parseFloat(stone.length);
     if (filters.minLength && length < parseFloat(filters.minLength)) return false;
@@ -564,7 +589,7 @@ export default function StoneInventoryApp() {
         logging: false,
       });
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a5' });
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const margin = 20;
@@ -646,8 +671,8 @@ export default function StoneInventoryApp() {
         Number(stone.width).toFixed(2),
         stone.quantity,
         Number(stone.area).toFixed(2),
-        stone.invoiceNumber || '-',
-        stone.invoiceNumber ? 'Sold' : 'In Stock',
+        getPalletInvoice(stone.palletNumber) || '-',
+        getPalletInvoice(stone.palletNumber) ? 'Sold' : 'In Stock',
       ]);
 
       const logoDataUrl = await loadLogoDataUrl();
@@ -718,6 +743,30 @@ export default function StoneInventoryApp() {
     }
   };
 
+
+  const editPallet = (palletNumber) => {
+    const palletItems = normalizedStones.filter((stone) => stone.palletNumber === palletNumber);
+    if (palletItems.length === 0) return;
+
+    const sampleStone = palletItems[0];
+    setFormData(prev => ({
+      ...prev,
+      palletNumber,
+      invoiceNumber: getPalletInvoice(palletNumber),
+      type: sampleStone.type || prev.type,
+      cutCode: sampleStone.cutCode || prev.cutCode,
+      grade: sampleStone.grade || prev.grade,
+      thickness: sampleStone.thickness ? String(sampleStone.thickness) : prev.thickness,
+    }));
+    setActiveTab('input');
+  };
+
+  const deletePallet = (palletNumber) => {
+    if (window.confirm(`از حذف کل پالت ${palletNumber} مطمئن هستید؟`)) {
+      setStones(normalizedStones.filter((stone) => stone.palletNumber !== palletNumber));
+    }
+  };
+
   const prepareChartData = () => {
     const typeAreas = {};
     const typeSoldAreas = {};
@@ -728,7 +777,7 @@ export default function StoneInventoryApp() {
         typeSoldAreas[stone.type] = 0;
       }
       typeAreas[stone.type] += stone.area;
-      if (stone.invoiceNumber) {
+      if (getPalletInvoice(stone.palletNumber)) {
         typeSoldAreas[stone.type] += stone.area;
       }
     });
@@ -1139,12 +1188,26 @@ export default function StoneInventoryApp() {
                       پالت: {palletGroup.palletNumber}
                       <span className="text-sm text-gray-300 mr-2">متراژ کل: {palletGroup.totalArea.toFixed(2)} m²</span>
                     </h3>
-                    <Button
-                      onClick={() => generatePalletCardPDF(palletGroup.palletNumber, palletGroup.stones, palletGroup.totalArea)}
-                      className="bg-green-600 hover:bg-green-500 px-3 py-1 text-xs"
-                    >
-                      چاپ کارت پالت
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => generatePalletCardPDF(palletGroup.palletNumber, palletGroup.stones, palletGroup.totalArea)}
+                        className="bg-green-600 hover:bg-green-500 px-3 py-1 text-xs"
+                      >
+                        چاپ کارت پالت
+                      </Button>
+                      <Button
+                        onClick={() => editPallet(palletGroup.palletNumber)}
+                        className="bg-yellow-600 hover:bg-yellow-500 px-3 py-1 text-xs"
+                      >
+                        ویرایش پالت
+                      </Button>
+                      <Button
+                        onClick={() => deletePallet(palletGroup.palletNumber)}
+                        className="bg-red-600 hover:bg-red-500 px-3 py-1 text-xs"
+                      >
+                        حذف پالت
+                      </Button>
+                    </div>
                   </div>
 
                   <Table>
@@ -1160,7 +1223,6 @@ export default function StoneInventoryApp() {
                         <TableHead>متراژ (متر مربع)</TableHead>
                         <TableHead>فاکتور</TableHead>
                         <TableHead>وضعیت</TableHead>
-                        <TableHead>عملیات</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -1174,16 +1236,8 @@ export default function StoneInventoryApp() {
                           <TableCell>{stone.width.toFixed(2)}</TableCell>
                           <TableCell>{stone.quantity}</TableCell>
                           <TableCell>{stone.area.toFixed(2)}</TableCell>
-                          <TableCell>{stone.invoiceNumber || '-'}</TableCell>
-                          <TableCell>{stone.invoiceNumber ? 'فروخته‌شده' : 'در انبار'}</TableCell>
-                          <TableCell className="space-x-2">
-                            <Button size="sm" onClick={() => editStone(stone.id) }  className="bg-yellow-600 hover:bg-yellow-500 px-2 py-1 text-xs">
-                              ویرایش
-                            </Button>
-                            <Button size="sm" onClick={() => deleteStone(stone.id)} className="bg-red-600 hover:bg-red-500 px-2 py-1 text-xs">
-                              حذف
-                            </Button>
-                          </TableCell>
+                          <TableCell>{getPalletInvoice(stone.palletNumber) || '-'}</TableCell>
+                          <TableCell>{getPalletInvoice(stone.palletNumber) ? 'فروخته‌شده' : 'در انبار'}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

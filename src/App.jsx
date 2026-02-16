@@ -309,8 +309,23 @@ export default function StoneInventoryApp() {
       return;
     }
 
+    const palletItems = normalizedStones.filter((stone) => stone.palletNumber === formData.palletNumber);
+    const existingInvoices = [...new Set(
+      palletItems
+        .map((stone) => String(stone.invoiceNumber || '').trim())
+        .filter(Boolean)
+    )];
+
+    if (existingInvoices.length > 0 && formData.invoiceNumber && formData.invoiceNumber.trim() !== existingInvoices[0]) {
+      alert(`برای این پالت قبلاً فاکتور ${existingInvoices[0]} ثبت شده است.`);
+      return;
+    }
+
+    const palletInvoiceNumber = existingInvoices[0] || String(formData.invoiceNumber || '').trim();
+
     const newStone = {
       ...formData,
+      invoiceNumber: palletInvoiceNumber,
       id: Date.now().toString(),
       thickness: parseFloat(formData.thickness),
       length: parseFloat(formData.length),
@@ -341,7 +356,7 @@ export default function StoneInventoryApp() {
       width: '',
       quantity: '',
       area: '',
-      invoiceNumber: '',
+      invoiceNumber: currentPalletInvoice,
       notes: '',
       status: 'در انبار'
     }));
@@ -361,6 +376,17 @@ export default function StoneInventoryApp() {
   const currentPalletArea = currentPalletStones
     .reduce((sum, stone) => sum + Number(stone.area || 0), 0)
     .toFixed(2);
+
+  const currentPalletInvoice = (() => {
+    const invoices = [...new Set(
+      currentPalletStones
+        .map((stone) => String(stone.invoiceNumber || '').trim())
+        .filter(Boolean)
+    )];
+
+    if (invoices.length > 0) return invoices[0];
+    return '';
+  })();
 
   const handleFilterChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -480,10 +506,18 @@ export default function StoneInventoryApp() {
     }
   };
 
-  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl, qrDataUrl }) => {
-    const headersHtml = headers.map((header) => `<th style="border:1px solid #ddd;padding:8px;background:#f3f4f6;font-weight:800">${normalizePdfText(header)}</th>`).join('');
+  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl, qrDataUrl, fontScale = 1, darkTable = false }) => {
+    const borderColor = darkTable ? '#000000' : '#dddddd';
+    const headerBg = darkTable ? '#000000' : '#f3f4f6';
+    const headerColor = darkTable ? '#ffffff' : '#111111';
+    const titleFontSize = Math.round(24 * fontScale);
+    const subtitleFontSize = Math.round(16 * fontScale);
+    const tableFontSize = Math.round(15 * fontScale);
+    const cellPadding = Math.round(8 * fontScale);
+
+    const headersHtml = headers.map((header) => `<th style="border:3px solid ${borderColor};padding:${cellPadding}px;background:${headerBg};color:${headerColor};font-weight:900">${normalizePdfText(header)}</th>`).join('');
     const rowsHtml = rows.map((row) => (
-      `<tr>${row.map((cell) => `<td style="border:1px solid #ddd;padding:8px">${normalizePdfText(cell)}</td>`).join('')}</tr>`
+      `<tr>${row.map((cell) => `<td style="border:3px solid ${borderColor};padding:${cellPadding}px">${normalizePdfText(cell)}</td>`).join('')}</tr>`
     )).join('');
 
     const logoHtml = logoDataUrl
@@ -500,9 +534,9 @@ export default function StoneInventoryApp() {
           <div>${logoHtml}</div>
           <div>${qrHtml}</div>
         </div>
-        <h2 style="text-align:center;margin:0 0 10px 0;font-size:24px;font-weight:800">${normalizePdfText(title)}</h2>
-        <p style="text-align:center;margin:0 0 14px 0;font-size:16px;font-weight:700">${normalizePdfText(subtitle)}</p>
-        <table style="width:100%;border-collapse:collapse;font-size:15px;text-align:center;direction:rtl;font-weight:600">
+        <h2 style="text-align:center;margin:0 0 10px 0;font-size:${titleFontSize}px;font-weight:900">${normalizePdfText(title)}</h2>
+        <p style="text-align:center;margin:0 0 14px 0;font-size:${subtitleFontSize}px;font-weight:800">${normalizePdfText(subtitle)}</p>
+        <table style="width:100%;border-collapse:collapse;font-size:${tableFontSize}px;text-align:center;direction:rtl;font-weight:700">
           <thead><tr>${headersHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
@@ -589,6 +623,8 @@ export default function StoneInventoryApp() {
       rows,
       logoDataUrl,
       qrDataUrl,
+      fontScale: 3,
+      darkTable: true,
     });
 
     await exportHtmlPdf({ htmlContent, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
@@ -651,6 +687,8 @@ export default function StoneInventoryApp() {
         rows,
         logoDataUrl,
         qrDataUrl,
+        fontScale: 3,
+        darkTable: true,
       });
 
       await exportHtmlPdf({ htmlContent, fileName: `Pallet_Card_${palletNumber}.pdf` });
@@ -917,6 +955,8 @@ export default function StoneInventoryApp() {
                 تعداد آیتم‌ها: <span className="font-semibold">{currentPalletStones.length}</span>
                 {' | '}
                 متراژ کل: <span className="font-semibold">{currentPalletArea} m²</span>
+                {' | '}
+                شماره فاکتور پالت: <span className="font-semibold">{currentPalletInvoice || '---'}</span>
               </p>
 
               {currentPalletStones.length > 0 ? (
@@ -931,6 +971,7 @@ export default function StoneInventoryApp() {
                       <TableHead>عرض</TableHead>
                       <TableHead>تعداد</TableHead>
                       <TableHead>متراژ</TableHead>
+                      <TableHead>عملیات</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -944,6 +985,14 @@ export default function StoneInventoryApp() {
                         <TableCell>{Number(stone.width).toFixed(2)}</TableCell>
                         <TableCell>{stone.quantity}</TableCell>
                         <TableCell>{Number(stone.area).toFixed(2)}</TableCell>
+                        <TableCell className="space-x-2">
+                          <Button size="sm" onClick={() => editStone(stone.id)} className="bg-yellow-600 hover:bg-yellow-500 px-2 py-1 text-xs">
+                            ویرایش
+                          </Button>
+                          <Button size="sm" onClick={() => deleteStone(stone.id)} className="bg-red-600 hover:bg-red-500 px-2 py-1 text-xs">
+                            حذف
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>

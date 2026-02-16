@@ -102,7 +102,7 @@ const TableCell = ({ children }) => <td className="px-4 py-2 text-sm">{children}
 const prepareSearchResults = (stones) => {
   const groupedByPallet = {};
 
-  stones.forEach(stone => {
+  (Array.isArray(stones) ? stones : []).forEach(stone => {
     if (!groupedByPallet[stone.palletNumber]) {
       groupedByPallet[stone.palletNumber] = {
         palletNumber: stone.palletNumber,
@@ -171,8 +171,12 @@ export default function StoneInventoryApp() {
         if (window.electronAPI) {
           const data = await window.electronAPI.loadData();
           if (data) {
-            setStones(data.stones || []);
-            setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
+            const loadedStones = Array.isArray(data.stones) ? data.stones : [];
+            const loadedStoneTypes = Array.isArray(data.stoneTypes) && data.stoneTypes.length > 0
+              ? data.stoneTypes
+              : ['Granite', 'Marble', 'Limestone'];
+            setStones(loadedStones);
+            setStoneTypes(loadedStoneTypes);
           }
           return;
         }
@@ -180,8 +184,12 @@ export default function StoneInventoryApp() {
         const raw = localStorage.getItem('stone-inventory-data');
         if (!raw) return;
         const data = JSON.parse(raw);
-        setStones(data.stones || []);
-        setStoneTypes(data.stoneTypes || ['Granite', 'Marble', 'Limestone']);
+        const loadedStones = Array.isArray(data.stones) ? data.stones : [];
+        const loadedStoneTypes = Array.isArray(data.stoneTypes) && data.stoneTypes.length > 0
+          ? data.stoneTypes
+          : ['Granite', 'Marble', 'Limestone'];
+        setStones(loadedStones);
+        setStoneTypes(loadedStoneTypes);
       } catch (error) {
         console.error('Failed to load inventory data:', error);
       }
@@ -192,7 +200,10 @@ export default function StoneInventoryApp() {
 
   // ذخیره‌سازی سریع بعد از تغییرات
   useEffect(() => {
-    const dataToSave = { stones, stoneTypes };
+    const dataToSave = {
+      stones: Array.isArray(stones) ? stones : [],
+      stoneTypes: Array.isArray(stoneTypes) ? stoneTypes : ['Granite', 'Marble', 'Limestone'],
+    };
     const timeout = setTimeout(() => {
       persistData(dataToSave);
     }, 300);
@@ -203,7 +214,10 @@ export default function StoneInventoryApp() {
   // ذخیره‌سازی نهایی هنگام بستن/ریلـود
   useEffect(() => {
     const handleBeforeUnload = () => {
-      const dataToSave = { stones, stoneTypes };
+      const dataToSave = {
+      stones: Array.isArray(stones) ? stones : [],
+      stoneTypes: Array.isArray(stoneTypes) ? stoneTypes : ['Granite', 'Marble', 'Limestone'],
+    };
 
       if (window.electronAPI) {
         window.electronAPI.saveData(dataToSave);
@@ -297,7 +311,7 @@ export default function StoneInventoryApp() {
       quantity: parseInt(formData.quantity),
       area: parseFloat(formData.area)
     };
-    setStones([...stones, newStone]);
+    setStones([...normalizedStones, newStone]);
     resetForm();
   };
 
@@ -318,12 +332,17 @@ export default function StoneInventoryApp() {
     });
   };
 
+  const normalizedStones = Array.isArray(stones) ? stones : [];
+  const normalizedStoneTypes = Array.isArray(stoneTypes) && stoneTypes.length > 0
+    ? stoneTypes
+    : ['Granite', 'Marble', 'Limestone'];
+
   const handleFilterChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFilters(prev => {
       const newFilters = { ...prev, [name]: type === 'checkbox' ? checked : value };
 
-      if (name === 'type' && value && !stoneTypes.includes(value)) {
+      if (name === 'type' && value && !normalizedStoneTypes.includes(value)) {
         newFilters.type = '';
       }
 
@@ -331,7 +350,7 @@ export default function StoneInventoryApp() {
     });
   };
 
-  const filteredStones = stones.filter(stone => {
+  const filteredStones = normalizedStones.filter(stone => {
     if (!filters.showSold && stone.invoiceNumber) return false;
     if (filters.type && stone.type !== filters.type) return false;
     if (filters.palletNumber && !stone.palletNumber.includes(filters.palletNumber)) return false;
@@ -359,7 +378,7 @@ export default function StoneInventoryApp() {
   };
 
   const handlePalletSearch = () => {
-    const palletStones = stones.filter(stone => stone.palletNumber === palletNumberInput);
+    const palletStones = normalizedStones.filter(stone => stone.palletNumber === palletNumberInput);
 
     if (palletStones.length > 0) {
       setPalletDetails({
@@ -613,24 +632,24 @@ export default function StoneInventoryApp() {
 
 
   const addStoneType = () => {
-    if (newStoneType.trim() && !stoneTypes.includes(newStoneType)) {
-      setStoneTypes([...stoneTypes, newStoneType]);
+    if (newStoneType.trim() && !normalizedStoneTypes.includes(newStoneType)) {
+      setStoneTypes([...normalizedStoneTypes, newStoneType]);
       setNewStoneType('');
     }
   };
 
   const editStone = (id) => {
-    const stoneToEdit = stones.find(stone => stone.id === id);
+    const stoneToEdit = normalizedStones.find(stone => stone.id === id);
     if (stoneToEdit) {
       setFormData({ ...stoneToEdit });
-      setStones(stones.filter(stone => stone.id !== id));
+      setStones(normalizedStones.filter(stone => stone.id !== id));
       setActiveTab('input');
     }
   };
 
   const deleteStone = (id) => {
     if (window.confirm('از حذف این سنگ مطمئن هستید؟')) {
-      setStones(stones.filter(stone => stone.id !== id));
+      setStones(normalizedStones.filter(stone => stone.id !== id));
     }
   };
 
@@ -638,7 +657,7 @@ export default function StoneInventoryApp() {
     const typeAreas = {};
     const typeSoldAreas = {};
 
-    stones.forEach(stone => {
+    normalizedStones.forEach(stone => {
       if (!typeAreas[stone.type]) {
         typeAreas[stone.type] = 0;
         typeSoldAreas[stone.type] = 0;
@@ -724,7 +743,7 @@ export default function StoneInventoryApp() {
                   <label className="block text-sm font-medium mb-1">نوع سنگ</label>
                   <Select name="type" value={formData.type} onChange={(value) => setFormData(prev => ({...prev, type: value}))} required>
                     <option value="" disabled>نوع سنگ را انتخاب کنید</option>
-                    {stoneTypes.map(type => (
+                    {normalizedStoneTypes.map(type => (
                       <option key={type} value={type}>{type}</option>
                     ))}
                   </Select>
@@ -883,7 +902,7 @@ export default function StoneInventoryApp() {
                 <label className="block text-sm font-medium mb-1">نوع سنگ</label>
                 <Select name="type" value={filters.type} onChange={(value) => setFilters(prev => ({...prev, type: value}))}>
                   <option value="">All types</option>
-                  {stoneTypes.map(type => (
+                  {normalizedStoneTypes.map(type => (
                     <option key={type} value={type}>{type}</option>
                   ))}
                 </Select>
@@ -1141,7 +1160,7 @@ export default function StoneInventoryApp() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {stoneTypes.map((type, index) => (
+                {normalizedStoneTypes.map((type, index) => (
                   <TableRow key={index}>
                     <TableCell>{index + 1}</TableCell>
                     <TableCell>{type}</TableCell>
@@ -1150,12 +1169,12 @@ export default function StoneInventoryApp() {
                         size="sm"
                         onClick={() => {
                           if (window.confirm('از حذف این نوع سنگ مطمئن هستید؟')) {
-                            const stonesUsingType = stones.some(stone => stone.type === type);
+                            const stonesUsingType = normalizedStones.some(stone => stone.type === type);
                             if (stonesUsingType) {
                               alert('حذف ممکن نیست: این نوع سنگ در رکوردها استفاده شده است');
                               return;
                             }
-                            setStoneTypes(stoneTypes.filter(t => t !== type));
+                            setStoneTypes(normalizedStoneTypes.filter(t => t !== type));
                           }
                         }}
                         className="bg-red-600 hover:bg-red-500 px-2 py-1 text-xs"

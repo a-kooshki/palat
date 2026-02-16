@@ -1137,7 +1137,7 @@ export default function StoneInventoryApp() {
 
         <TabsContent value="types" label="انواع سنگ">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
-            <h2 className="text-xl font-semibold mb-4 text-blue-300">نوع سنگs Management</h2>
+            <h2 className="text-xl font-semibold mb-4 text-blue-300">مدیریت انواع سنگ</h2>
 
             <div className="flex space-x-4 mb-6">
               <Input
@@ -1146,7 +1146,7 @@ export default function StoneInventoryApp() {
                 placeholder="نوع سنگ جدید"
                 className="flex-1"
               />
-              <Button onClick={addStoneنوع} className="bg-blue-600 hover:bg-blue-500">
+              <Button onClick={addStoneType} className="bg-blue-600 hover:bg-blue-500">
                 Add نوع
               </Button>
             </div>

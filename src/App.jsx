@@ -488,11 +488,12 @@ export default function StoneInventoryApp() {
   const exportHtmlPdf = async ({ htmlContent, fileName }) => {
     const container = document.createElement('div');
     container.style.position = 'fixed';
-    container.style.inset = '0';
-    container.style.opacity = '0';
+    container.style.left = '-10000px';
+    container.style.top = '0';
     container.style.pointerEvents = 'none';
     container.style.width = '1200px';
     container.style.background = '#ffffff';
+    container.style.zIndex = '-1';
     container.innerHTML = htmlContent;
     document.body.appendChild(container);
 
@@ -501,6 +502,7 @@ export default function StoneInventoryApp() {
         scale: 2,
         useCORS: true,
         backgroundColor: '#ffffff',
+        logging: false,
       });
 
       const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'a4' });

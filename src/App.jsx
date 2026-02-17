@@ -637,8 +637,11 @@ export default function StoneInventoryApp() {
         if (i > 0) doc.addPage();
 
         const renderedHeight = (canvas.height * printableWidth) / canvas.width;
-        const fitHeight = Math.min(renderedHeight, printableHeight);
-        doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, printableWidth, fitHeight);
+        const scaleRatio = renderedHeight > printableHeight ? (printableHeight / renderedHeight) : 1;
+        const drawWidth = printableWidth * scaleRatio;
+        const drawHeight = renderedHeight * scaleRatio;
+        const drawX = margin + ((printableWidth - drawWidth) / 2);
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', drawX, margin, drawWidth, drawHeight);
       } finally {
         document.body.removeChild(container);
       }
@@ -667,7 +670,7 @@ export default function StoneInventoryApp() {
     const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
     const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
-    const chunkSize = 14;
+    const chunkSize = 10;
     const rowChunks = [];
     for (let i = 0; i < rows.length; i += chunkSize) rowChunks.push(rows.slice(i, i + chunkSize));
 
@@ -737,7 +740,7 @@ export default function StoneInventoryApp() {
       const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
       const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
-      const chunkSize = 14;
+      const chunkSize = 10;
       const rowChunks = [];
       for (let i = 0; i < rows.length; i += chunkSize) rowChunks.push(rows.slice(i, i + chunkSize));
 

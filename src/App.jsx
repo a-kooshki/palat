@@ -133,7 +133,6 @@ export default function StoneInventoryApp() {
     width: '',
     quantity: '',
     area: '',
-    invoiceNumber: '',
     notes: '',
     status: 'در انبار'
   });
@@ -147,10 +146,22 @@ export default function StoneInventoryApp() {
     maxLength: '',
     minWidth: '',
     maxWidth: '',
+    minThickness: '',
+    maxThickness: '',
+    cutCode: '',
     invoiceNumber: ''
   });
   const [palletDetails, setPalletDetails] = useState(null);
   const [palletNumberInput, setPalletNumberInput] = useState('');
+
+  const [selectedPallets, setSelectedPallets] = useState([]);
+  const [bulkInvoiceNumber, setBulkInvoiceNumber] = useState('');
+  const [settings, setSettings] = useState({
+    showLogoInPdf: true,
+    showQrInPdf: true,
+    enableFormDefaults: true,
+    pdfFontScale: 1.15,
+  });
 
   const [lastEntryDefaults, setLastEntryDefaults] = useState({
     type: '',
@@ -184,6 +195,9 @@ export default function StoneInventoryApp() {
               : ['Granite', 'Marble', 'Limestone'];
             setStones(loadedStones);
             setStoneTypes(loadedStoneTypes);
+            if (data.settings) {
+              setSettings((prev) => ({ ...prev, ...data.settings }));
+            }
           }
           return;
         }
@@ -197,6 +211,9 @@ export default function StoneInventoryApp() {
           : ['Granite', 'Marble', 'Limestone'];
         setStones(loadedStones);
         setStoneTypes(loadedStoneTypes);
+        if (data.settings) {
+          setSettings((prev) => ({ ...prev, ...data.settings }));
+        }
       } catch (error) {
         console.error('Failed to load inventory data:', error);
       }
@@ -210,13 +227,14 @@ export default function StoneInventoryApp() {
     const dataToSave = {
       stones: Array.isArray(stones) ? stones : [],
       stoneTypes: Array.isArray(stoneTypes) ? stoneTypes : ['Granite', 'Marble', 'Limestone'],
+      settings,
     };
     const timeout = setTimeout(() => {
       persistData(dataToSave);
     }, 300);
 
     return () => clearTimeout(timeout);
-  }, [stones, stoneTypes]);
+  }, [stones, stoneTypes, settings]);
 
   // ذخیره‌سازی نهایی هنگام بستن/ریلـود
   useEffect(() => {
@@ -224,6 +242,7 @@ export default function StoneInventoryApp() {
       const dataToSave = {
       stones: Array.isArray(stones) ? stones : [],
       stoneTypes: Array.isArray(stoneTypes) ? stoneTypes : ['Granite', 'Marble', 'Limestone'],
+      settings,
     };
 
       if (window.electronAPI) {
@@ -235,7 +254,7 @@ export default function StoneInventoryApp() {
 
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [stones, stoneTypes]);
+  }, [stones, stoneTypes, settings]);
 
 
   const normalizePalletInput = (rawValue) => {
@@ -321,19 +340,7 @@ export default function StoneInventoryApp() {
       return;
     }
 
-    const palletItems = normalizedStones.filter((stone) => stone.palletNumber === formData.palletNumber);
-    const existingInvoices = [...new Set(
-      palletItems
-        .map((stone) => String(stone.invoiceNumber || '').trim())
-        .filter(Boolean)
-    )];
-
-    if (existingInvoices.length > 0 && formData.invoiceNumber && formData.invoiceNumber.trim() !== existingInvoices[0]) {
-      alert(`برای این پالت قبلاً فاکتور ${existingInvoices[0]} ثبت شده است.`);
-      return;
-    }
-
-    const palletInvoiceNumber = existingInvoices[0] || String(formData.invoiceNumber || '').trim();
+    const palletInvoiceNumber = getPalletInvoice(formData.palletNumber);
 
     const newStone = {
       ...formData,
@@ -346,12 +353,14 @@ export default function StoneInventoryApp() {
       area: parseFloat(formData.area)
     };
 
-    setLastEntryDefaults({
-      type: formData.type,
-      cutCode: formData.cutCode,
-      grade: formData.grade,
-      thickness: formData.thickness,
-    });
+    if (settings.enableFormDefaults) {
+      setLastEntryDefaults({
+        type: formData.type,
+        cutCode: formData.cutCode,
+        grade: formData.grade,
+        thickness: formData.thickness,
+      });
+    }
 
     setStones([...normalizedStones, newStone]);
     resetForm();
@@ -359,16 +368,15 @@ export default function StoneInventoryApp() {
 
   const resetForm = () => {
     setFormData(prev => ({
-      type: lastEntryDefaults.type,
-      cutCode: lastEntryDefaults.cutCode,
+      type: settings.enableFormDefaults ? lastEntryDefaults.type : '',
+      cutCode: settings.enableFormDefaults ? lastEntryDefaults.cutCode : '',
       palletNumber: prev.palletNumber,
-      grade: lastEntryDefaults.grade,
-      thickness: lastEntryDefaults.thickness,
+      grade: settings.enableFormDefaults ? lastEntryDefaults.grade : '',
+      thickness: settings.enableFormDefaults ? lastEntryDefaults.thickness : '',
       length: '',
       width: '',
       quantity: '',
       area: '',
-      invoiceNumber: currentPalletInvoice,
       notes: '',
       status: 'در انبار'
     }));
@@ -401,7 +409,7 @@ export default function StoneInventoryApp() {
   })();
 
 
-  const getPalletInvoice = (palletNumber) => {
+  function getPalletInvoice(palletNumber) {
     const invoices = [...new Set(
       normalizedStones
         .filter((stone) => stone.palletNumber === palletNumber)
@@ -410,7 +418,7 @@ export default function StoneInventoryApp() {
     )];
 
     return invoices[0] || '';
-  };
+  }
 
   const handleFilterChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -431,7 +439,12 @@ export default function StoneInventoryApp() {
     if (filters.type && stone.type !== filters.type) return false;
     if (filters.palletNumber && !stone.palletNumber.includes(filters.palletNumber)) return false;
     if (filters.grade && stone.grade !== filters.grade) return false;
+    if (filters.cutCode && String(stone.cutCode) !== String(filters.cutCode)) return false;
     if (filters.invoiceNumber && palletInvoice !== filters.invoiceNumber) return false;
+
+    const thickness = parseFloat(stone.thickness);
+    if (filters.minThickness && thickness < parseFloat(filters.minThickness)) return false;
+    if (filters.maxThickness && thickness > parseFloat(filters.maxThickness)) return false;
 
     const length = parseFloat(stone.length);
     if (filters.minLength && length < parseFloat(filters.minLength)) return false;
@@ -537,12 +550,12 @@ export default function StoneInventoryApp() {
     const headerColor = darkTable ? '#ffffff' : '#111111';
     const titleFontSize = Math.round(24 * fontScale);
     const subtitleFontSize = Math.round(16 * fontScale);
-    const tableFontSize = Math.round(15 * fontScale);
-    const cellPadding = Math.round(8 * fontScale);
+    const tableFontSize = Math.round(10 * fontScale);
+    const cellPadding = Math.round(5 * fontScale);
 
-    const headersHtml = headers.map((header) => `<th style="border:3px solid ${borderColor};padding:${cellPadding}px;background:${headerBg};color:${headerColor};font-weight:900">${normalizePdfText(header)}</th>`).join('');
+    const headersHtml = headers.map((header) => `<th style=\"border:2px solid ${borderColor};padding:${cellPadding}px;background:${headerBg};color:${headerColor};font-weight:900;word-break:break-word\">${normalizePdfText(header)}</th>`).join('');
     const rowsHtml = rows.map((row) => (
-      `<tr>${row.map((cell) => `<td style="border:3px solid ${borderColor};padding:${cellPadding}px">${normalizePdfText(cell)}</td>`).join('')}</tr>`
+      `<tr>${row.map((cell) => `<td style=\"border:2px solid ${borderColor};padding:${cellPadding}px;word-break:break-word\">${normalizePdfText(cell)}</td>`).join('')}</tr>`
     )).join('');
 
     const logoHtml = logoDataUrl
@@ -561,7 +574,7 @@ export default function StoneInventoryApp() {
         </div>
         <h2 style="text-align:center;margin:0 0 10px 0;font-size:${titleFontSize}px;font-weight:900">${normalizePdfText(title)}</h2>
         <p style="text-align:center;margin:0 0 14px 0;font-size:${subtitleFontSize}px;font-weight:800">${normalizePdfText(subtitle)}</p>
-        <table style="width:100%;border-collapse:collapse;font-size:${tableFontSize}px;text-align:center;direction:rtl;font-weight:700">
+        <table style=\"width:100%;border-collapse:collapse;font-size:${tableFontSize}px;text-align:center;direction:rtl;font-weight:700;table-layout:fixed\">
           <thead><tr>${headersHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
@@ -575,7 +588,7 @@ export default function StoneInventoryApp() {
     container.style.left = '-10000px';
     container.style.top = '0';
     container.style.pointerEvents = 'none';
-    container.style.width = '1200px';
+    container.style.width = '760px';
     container.style.background = '#ffffff';
     container.style.zIndex = '-1';
     container.innerHTML = htmlContent;
@@ -616,6 +629,8 @@ export default function StoneInventoryApp() {
         doc.addImage(pageImage, 'PNG', margin, margin, printableWidth, renderedHeight);
       }
 
+      const blobUrl = doc.output('bloburl');
+      window.open(blobUrl, '_blank', 'noopener,noreferrer');
       doc.save(fileName);
     } finally {
       document.body.removeChild(container);
@@ -638,8 +653,8 @@ export default function StoneInventoryApp() {
       Number(stone.area).toFixed(2),
     ]));
 
-    const logoDataUrl = await loadLogoDataUrl();
-    const qrDataUrl = await loadQrDataUrl();
+    const logoDataUrl = settings.showLogoInPdf ? await loadLogoDataUrl() : null;
+    const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
     const htmlContent = buildPdfHtml({
       title: `Pallet Card: ${palletDetails.palletNumber}`,
@@ -648,7 +663,7 @@ export default function StoneInventoryApp() {
       rows,
       logoDataUrl,
       qrDataUrl,
-      fontScale: 3,
+      fontScale: settings.pdfFontScale,
       darkTable: true,
     });
 
@@ -675,8 +690,8 @@ export default function StoneInventoryApp() {
         getPalletInvoice(stone.palletNumber) ? 'Sold' : 'In Stock',
       ]);
 
-      const logoDataUrl = await loadLogoDataUrl();
-      const qrDataUrl = await loadQrDataUrl();
+      const logoDataUrl = settings.showLogoInPdf ? await loadLogoDataUrl() : null;
+      const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
       const htmlContent = buildPdfHtml({
         title: 'Search Report',
@@ -702,8 +717,8 @@ export default function StoneInventoryApp() {
         Number(stone.area).toFixed(2),
       ]);
 
-      const logoDataUrl = await loadLogoDataUrl();
-      const qrDataUrl = await loadQrDataUrl();
+      const logoDataUrl = settings.showLogoInPdf ? await loadLogoDataUrl() : null;
+      const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
       const htmlContent = buildPdfHtml({
         title: `Pallet Card: ${palletNumber}`,
@@ -712,7 +727,7 @@ export default function StoneInventoryApp() {
         rows,
         logoDataUrl,
         qrDataUrl,
-        fontScale: 3,
+        fontScale: settings.pdfFontScale,
         darkTable: true,
       });
 
@@ -752,7 +767,6 @@ export default function StoneInventoryApp() {
     setFormData(prev => ({
       ...prev,
       palletNumber,
-      invoiceNumber: getPalletInvoice(palletNumber),
       type: sampleStone.type || prev.type,
       cutCode: sampleStone.cutCode || prev.cutCode,
       grade: sampleStone.grade || prev.grade,
@@ -764,6 +778,57 @@ export default function StoneInventoryApp() {
   const deletePallet = (palletNumber) => {
     if (window.confirm(`از حذف کل پالت ${palletNumber} مطمئن هستید؟`)) {
       setStones(normalizedStones.filter((stone) => stone.palletNumber !== palletNumber));
+      setSelectedPallets((prev) => prev.filter((code) => code !== palletNumber));
+    }
+  };
+
+  const togglePalletSelection = (palletNumber, checked) => {
+    setSelectedPallets((prev) => {
+      if (checked) return Array.from(new Set([...prev, palletNumber]));
+      return prev.filter((code) => code !== palletNumber);
+    });
+  };
+
+  const markSelectedPalletsAsSold = () => {
+    const invoice = String(bulkInvoiceNumber || '').trim();
+    if (!invoice) {
+      alert('شماره فاکتور را وارد کنید.');
+      return;
+    }
+
+    if (selectedPallets.length === 0) {
+      alert('حداقل یک پالت انتخاب کنید.');
+      return;
+    }
+
+    setStones((prev) => prev.map((stone) => (
+      selectedPallets.includes(stone.palletNumber)
+        ? { ...stone, invoiceNumber: invoice }
+        : stone
+    )));
+    setBulkInvoiceNumber('');
+    setSelectedPallets([]);
+  };
+
+  const clearSelectedPalletsInvoice = () => {
+    if (selectedPallets.length === 0) {
+      alert('حداقل یک پالت انتخاب کنید.');
+      return;
+    }
+
+    setStones((prev) => prev.map((stone) => (
+      selectedPallets.includes(stone.palletNumber)
+        ? { ...stone, invoiceNumber: '' }
+        : stone
+    )));
+    setSelectedPallets([]);
+  };
+
+  const handleSettingsChange = (name, value) => {
+    setSettings((prev) => ({ ...prev, [name]: value }));
+
+    if (name === 'enableFormDefaults' && value === false) {
+      setLastEntryDefaults({ type: '', cutCode: '', grade: '', thickness: '' });
     }
   };
 
@@ -967,15 +1032,6 @@ export default function StoneInventoryApp() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium mb-1">شماره فاکتور (اختیاری)</label>
-                  <Input
-                    name="invoiceNumber"
-                    value={formData.invoiceNumber}
-                    onChange={handleFormChange}
-                  />
-                </div>
-
-                <div>
                   <label className="block text-sm font-medium mb-1">یادداشت</label>
                   <Input
                     name="notes"
@@ -1148,6 +1204,38 @@ export default function StoneInventoryApp() {
               </div>
 
               <div>
+                <label className="block text-sm font-medium mb-1">کد برش</label>
+                <Input
+                  type="number"
+                  name="cutCode"
+                  value={filters.cutCode}
+                  onChange={handleFilterChange}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">حداقل ضخامت (متر)</label>
+                <Input
+                  type="number"
+                  name="minThickness"
+                  value={filters.minThickness}
+                  onChange={handleFilterChange}
+                  step="0.01"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-1">حداکثر ضخامت (متر)</label>
+                <Input
+                  type="number"
+                  name="maxThickness"
+                  value={filters.maxThickness}
+                  onChange={handleFilterChange}
+                  step="0.01"
+                />
+              </div>
+
+              <div>
                 <label className="block text-sm font-medium mb-1">شماره فاکتور</label>
                 <Input
                   name="invoiceNumber"
@@ -1164,6 +1252,19 @@ export default function StoneInventoryApp() {
               <p className="font-semibold">
                 تعداد کل سنگ‌ها: <span className="text-blue-300">{filteredStones.length}</span>
               </p>
+            </div>
+
+            <div className="mb-4 p-4 bg-gray-700 rounded-lg">
+              <h3 className="font-semibold text-blue-300 mb-3">ثبت فروش گروهی پالت‌ها</h3>
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-medium mb-1">شماره فاکتور</label>
+                  <Input value={bulkInvoiceNumber} onChange={(e) => setBulkInvoiceNumber(e.target.value)} placeholder="INV-1001" />
+                </div>
+                <Button onClick={markSelectedPalletsAsSold} className="bg-blue-600 hover:bg-blue-500">ثبت فروش برای پالت‌های انتخاب‌شده</Button>
+                <Button onClick={clearSelectedPalletsInvoice} className="bg-orange-600 hover:bg-orange-500">حذف فاکتور از پالت‌های انتخاب‌شده</Button>
+              </div>
+              <p className="text-xs text-gray-300 mt-2">تعداد پالت انتخاب‌شده: {selectedPallets.length}</p>
             </div>
 
             <div className="mb-4 flex justify-end">
@@ -1184,6 +1285,14 @@ export default function StoneInventoryApp() {
               {prepareSearchResults(filteredStones).map(palletGroup => (
                 <div key={palletGroup.palletNumber} className="border border-gray-600 rounded-lg p-4 bg-gray-800">
                   <div className="flex justify-between items-center mb-2">
+                    <label className="flex items-center gap-2 text-xs text-gray-300">
+                      <input
+                        type="checkbox"
+                        checked={selectedPallets.includes(palletGroup.palletNumber)}
+                        onChange={(e) => togglePalletSelection(palletGroup.palletNumber, e.target.checked)}
+                      />
+                      انتخاب پالت
+                    </label>
                     <h3 className="font-semibold text-lg text-blue-300">
                       پالت: {palletGroup.palletNumber}
                       <span className="text-sm text-gray-300 mr-2">متراژ کل: {palletGroup.totalArea.toFixed(2)} m²</span>
@@ -1313,6 +1422,55 @@ export default function StoneInventoryApp() {
           </div>
         </TabsContent>
 
+
+        <TabsContent value="settings" label="تنظیمات">
+          <div className="bg-gray-800 p-6 rounded-lg shadow-lg space-y-4">
+            <h2 className="text-xl font-semibold text-blue-300">تنظیمات برنامه</h2>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <label className="flex items-center justify-between bg-gray-700 p-3 rounded">
+                <span>نمایش لوگو در PDF</span>
+                <input
+                  type="checkbox"
+                  checked={settings.showLogoInPdf}
+                  onChange={(e) => handleSettingsChange('showLogoInPdf', e.target.checked)}
+                />
+              </label>
+
+              <label className="flex items-center justify-between bg-gray-700 p-3 rounded">
+                <span>نمایش QR در PDF</span>
+                <input
+                  type="checkbox"
+                  checked={settings.showQrInPdf}
+                  onChange={(e) => handleSettingsChange('showQrInPdf', e.target.checked)}
+                />
+              </label>
+
+              <label className="flex items-center justify-between bg-gray-700 p-3 rounded md:col-span-2">
+                <span>فعال بودن دیفالت‌های فرم (نوع/برش/درجه/ضخامت)</span>
+                <input
+                  type="checkbox"
+                  checked={settings.enableFormDefaults}
+                  onChange={(e) => handleSettingsChange('enableFormDefaults', e.target.checked)}
+                />
+              </label>
+
+              <div className="bg-gray-700 p-3 rounded md:col-span-2">
+                <label className="block mb-2">اندازه فونت PDF کارت پالت: {settings.pdfFontScale.toFixed(2)}x</label>
+                <input
+                  type="range"
+                  min="0.8"
+                  max="1.8"
+                  step="0.05"
+                  value={settings.pdfFontScale}
+                  onChange={(e) => handleSettingsChange('pdfFontScale', parseFloat(e.target.value))}
+                  className="w-full"
+                />
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+
         <TabsContent value="types" label="انواع سنگ">
           <div className="bg-gray-800 p-6 rounded-lg shadow-lg">
             <h2 className="text-xl font-semibold mb-4 text-blue-300">مدیریت انواع سنگ</h2>
@@ -1325,7 +1483,7 @@ export default function StoneInventoryApp() {
                 className="flex-1"
               />
               <Button onClick={addStoneType} className="bg-blue-600 hover:bg-blue-500">
-                Add نوع
+                افزودن نوع
               </Button>
             </div>
 

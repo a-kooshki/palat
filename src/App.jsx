@@ -94,9 +94,9 @@ const Select = ({ name, value, onChange, children }) => (
 const Table = ({ children }) => <div className="overflow-x-auto"><table className="w-full bg-gray-700 rounded-lg overflow-hidden">{children}</table></div>;
 const TableHeader = ({ children }) => <thead className="bg-gray-800">{children}</thead>;
 const TableBody = ({ children }) => <tbody>{children}</tbody>;
-const TableHead = ({ children }) => <th className="px-4 py-2 text-left text-sm font-medium text-gray-300">{children}</th>;
+const TableHead = ({ children }) => <th className="px-4 py-2 text-center text-sm font-medium text-gray-300 align-middle">{children}</th>;
 const TableRow = ({ children }) => <tr className="border-b border-gray-600 hover:bg-gray-600">{children}</tr>;
-const TableCell = ({ children }) => <td className="px-4 py-2 text-sm">{children}</td>;
+const TableCell = ({ children }) => <td className="px-4 py-2 text-sm text-center align-middle">{children}</td>;
 
 
 const prepareSearchResults = (stones) => {
@@ -572,26 +572,27 @@ export default function StoneInventoryApp() {
     const titleFontSize = Math.round(24 * fontScale);
     const subtitleFontSize = Math.round(16 * fontScale);
     const tableFontSize = Math.round(12 * fontScale);
-    const cellPadding = Math.round(3 * fontScale);
+    const numericFontSize = Math.round(tableFontSize * 1.25);
+    const cellPadding = Math.max(2, Math.round(2 * fontScale));
 
-    const headersHtml = headers.map((header) => `<th style=\"border:2px solid ${borderColor};padding:${cellPadding}px;background:${headerBg};color:${headerColor};font-weight:900;word-break:break-word\">${normalizePdfText(header)}</th>`).join('');
+    const headersHtml = headers.map((header) => `<th style=\"border:2px solid ${borderColor};padding:${cellPadding}px;background:${headerBg};color:${headerColor};font-weight:900;word-break:break-word;white-space:nowrap\">${normalizePdfText(header)}</th>`).join('');
     const rowsHtml = rows.map((row) => (
-      `<tr>${row.map((cell) => `<td style=\"border:2px solid ${borderColor};padding:${cellPadding}px;word-break:break-word\">${normalizePdfText(cell)}</td>`).join('')}</tr>`
+      `<tr>${row.map((cell) => { const text = normalizePdfText(cell); const isNumeric = /^[-+]?\d+(?:[.,]\d+)?$/.test(String(text).trim()); return `<td style=\"border:2px solid ${borderColor};padding:${cellPadding}px;word-break:break-word;font-weight:${isNumeric ? 900 : 700};font-size:${isNumeric ? numericFontSize : tableFontSize}px\">${text}</td>`; }).join('')}</tr>`
     )).join('');
 
     const logoHtml = logoDataUrl
-      ? `<img src="${logoDataUrl}" alt="logo" style="height:96px;object-fit:contain" />`
-      : '<div style="height:96px;width:140px"></div>';
+      ? `<img src="${logoDataUrl}" alt="logo" style="height:144px;width:216px;object-fit:contain" />`
+      : '<div style="height:144px;width:216px"></div>';
 
     const qrHtml = qrDataUrl
-      ? `<img src="${qrDataUrl}" alt="qr" style="height:96px;width:96px;object-fit:contain" />`
-      : '<div style="height:96px;width:96px"></div>';
+      ? `<img src="${qrDataUrl}" alt="qr" style="height:144px;width:144px;object-fit:contain" />`
+      : '<div style="height:144px;width:144px"></div>';
 
     return `
       <div dir="ltr" style="font-family:'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif;padding:16px;color:#111;background:#fff">
         <div style="display:flex;justify-content:space-between;align-items:center;direction:ltr;margin-bottom:8px;gap:12px">
           <div>${logoHtml}</div>
-          <div style="flex:1;text-align:center;font-size:${Math.round(18 * fontScale)}px;font-weight:800">${normalizePdfText(headerText)}</div>
+          <div style="flex:1;text-align:center;font-size:${Math.round(18 * fontScale)}px;font-weight:800">${normalizePdfText(headerText || '-')}</div>
           <div>${qrHtml}</div>
         </div>
         <h2 style="text-align:center;margin:0 0 10px 0;font-size:${titleFontSize}px;font-weight:900">${normalizePdfText(title)}</h2>
@@ -604,58 +605,47 @@ export default function StoneInventoryApp() {
     `;
   };
 
-  const exportHtmlPdf = async ({ htmlContent, fileName }) => {
-    const container = document.createElement('div');
-    container.style.position = 'fixed';
-    container.style.left = '-10000px';
-    container.style.top = '0';
-    container.style.pointerEvents = 'none';
-    container.style.width = '760px';
-    container.style.background = '#ffffff';
-    container.style.zIndex = '-1';
-    container.innerHTML = htmlContent;
-    document.body.appendChild(container);
+  const exportHtmlPdf = async ({ htmlContent, htmlPages, fileName }) => {
+    const pages = Array.isArray(htmlPages) && htmlPages.length > 0 ? htmlPages : [htmlContent];
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const margin = 20;
+    const printableWidth = pageWidth - margin * 2;
+    const printableHeight = pageHeight - margin * 2;
 
-    try {
-      const canvas = await html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
+    for (let i = 0; i < pages.length; i += 1) {
+      const container = document.createElement('div');
+      container.style.position = 'fixed';
+      container.style.left = '-10000px';
+      container.style.top = '0';
+      container.style.pointerEvents = 'none';
+      container.style.width = '760px';
+      container.style.background = '#ffffff';
+      container.style.zIndex = '-1';
+      container.innerHTML = pages[i];
+      document.body.appendChild(container);
 
-      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      const margin = 20;
-      const printableWidth = pageWidth - margin * 2;
-      const printableHeight = pageHeight - margin * 2;
+      try {
+        const canvas = await html2canvas(container, {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: '#ffffff',
+          logging: false,
+        });
 
-      const totalPages = Math.ceil(canvas.height / ((canvas.width / printableWidth) * printableHeight));
+        if (i > 0) doc.addPage();
 
-      for (let page = 0; page < totalPages; page += 1) {
-        if (page > 0) doc.addPage();
-
-        const sourceY = page * ((canvas.width / printableWidth) * printableHeight);
-        const sourceHeight = Math.min((canvas.width / printableWidth) * printableHeight, canvas.height - sourceY);
-
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = sourceHeight;
-
-        const ctx = pageCanvas.getContext('2d');
-        ctx.drawImage(canvas, 0, sourceY, canvas.width, sourceHeight, 0, 0, canvas.width, sourceHeight);
-
-        const pageImage = pageCanvas.toDataURL('image/png');
-        const renderedHeight = (sourceHeight * printableWidth) / canvas.width;
-        doc.addImage(pageImage, 'PNG', margin, margin, printableWidth, renderedHeight);
+        const renderedHeight = (canvas.height * printableWidth) / canvas.width;
+        const fitHeight = Math.min(renderedHeight, printableHeight);
+        doc.addImage(canvas.toDataURL('image/png'), 'PNG', margin, margin, printableWidth, fitHeight);
+      } finally {
+        document.body.removeChild(container);
       }
-
-      const blobUrl = doc.output('bloburl');
-      window.open(blobUrl, '_blank', 'noopener,noreferrer');
-    } finally {
-      document.body.removeChild(container);
     }
+
+    const blobUrl = doc.output('bloburl');
+    window.open(blobUrl, '_blank', 'noopener,noreferrer');
   };
 
   const generatePalletPDF = async () => {
@@ -677,19 +667,23 @@ export default function StoneInventoryApp() {
     const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
     const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
-    const htmlContent = buildPdfHtml({
+    const chunkSize = 14;
+    const rowChunks = [];
+    for (let i = 0; i < rows.length; i += chunkSize) rowChunks.push(rows.slice(i, i + chunkSize));
+
+    const htmlPages = rowChunks.map((chunk, idx) => buildPdfHtml({
       title: `Pallet Card: ${palletDetails.palletNumber}`,
-      subtitle: `Total Area: ${Number(palletDetails.totalArea).toFixed(2)} m²`,
-      headers: ['Row', 'Stone Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)'],
-      rows,
+      subtitle: `Total Area: ${Number(palletDetails.totalArea).toFixed(2)} m² | Page ${idx + 1}/${rowChunks.length}`,
+      headers: ['#', 'Type', 'Thk', 'Len', 'Wid', 'Qty', 'Area'],
+      rows: chunk,
       logoDataUrl,
       qrDataUrl,
       fontScale: settings.pdfFontScale,
       darkTable: true,
       headerText: settings.pdfHeaderText,
-    });
+    }));
 
-    await exportHtmlPdf({ htmlContent, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
+    await exportHtmlPdf({ htmlPages, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
   };
 
   const generateSearchPDF = async () => {
@@ -743,18 +737,23 @@ export default function StoneInventoryApp() {
       const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
       const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
-      const htmlContent = buildPdfHtml({
+      const chunkSize = 14;
+      const rowChunks = [];
+      for (let i = 0; i < rows.length; i += chunkSize) rowChunks.push(rows.slice(i, i + chunkSize));
+
+      const htmlPages = rowChunks.map((chunk, idx) => buildPdfHtml({
         title: `Pallet Card: ${palletNumber}`,
-        subtitle: `Total Area: ${Number(totalArea).toFixed(2)} m²`,
-        headers: ['Row', 'Stone Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)'],
-        rows,
+        subtitle: `Total Area: ${Number(totalArea).toFixed(2)} m² | Page ${idx + 1}/${rowChunks.length}`,
+        headers: ['#', 'Type', 'Thk', 'Len', 'Wid', 'Qty', 'Area'],
+        rows: chunk,
         logoDataUrl,
         qrDataUrl,
         fontScale: settings.pdfFontScale,
         darkTable: true,
-      });
+        headerText: settings.pdfHeaderText,
+      }));
 
-      await exportHtmlPdf({ htmlContent, fileName: `Pallet_Card_${palletNumber}.pdf` });
+      await exportHtmlPdf({ htmlPages, fileName: `Pallet_Card_${palletNumber}.pdf` });
     };
 
 
@@ -1483,7 +1482,7 @@ export default function StoneInventoryApp() {
                 <input
                   type="range"
                   min="0.8"
-                  max="3"
+                  max="4"
                   step="0.05"
                   value={settings.pdfFontScale}
                   onChange={(e) => handleSettingsChange('pdfFontScale', parseFloat(e.target.value))}

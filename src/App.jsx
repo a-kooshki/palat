@@ -161,6 +161,8 @@ export default function StoneInventoryApp() {
     showQrInPdf: true,
     enableFormDefaults: true,
     pdfFontScale: 1.15,
+    pdfHeaderText: '',
+    customLogoDataUrl: '',
   });
 
   const [lastEntryDefaults, setLastEntryDefaults] = useState({
@@ -535,7 +537,7 @@ export default function StoneInventoryApp() {
   const loadQrDataUrl = async () => {
     try {
       return await QRCode.toDataURL('agse.ir', {
-        width: 110,
+        width: 165,
         margin: 1,
         color: { dark: '#000000', light: '#FFFFFF' },
       });
@@ -544,14 +546,33 @@ export default function StoneInventoryApp() {
     }
   };
 
-  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl, qrDataUrl, fontScale = 1, darkTable = false }) => {
+
+  const getEffectiveLogoDataUrl = async () => {
+    if (settings.customLogoDataUrl) return settings.customLogoDataUrl;
+    return loadLogoDataUrl();
+  };
+
+  const handleLogoUpload = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (typeof reader.result === 'string') {
+        handleSettingsChange('customLogoDataUrl', reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const buildPdfHtml = ({ title, subtitle, headers, rows, logoDataUrl, qrDataUrl, fontScale = 1, darkTable = false, headerText = '' }) => {
     const borderColor = darkTable ? '#000000' : '#dddddd';
     const headerBg = darkTable ? '#000000' : '#f3f4f6';
     const headerColor = darkTable ? '#ffffff' : '#111111';
     const titleFontSize = Math.round(24 * fontScale);
     const subtitleFontSize = Math.round(16 * fontScale);
-    const tableFontSize = Math.round(10 * fontScale);
-    const cellPadding = Math.round(5 * fontScale);
+    const tableFontSize = Math.round(12 * fontScale);
+    const cellPadding = Math.round(3 * fontScale);
 
     const headersHtml = headers.map((header) => `<th style=\"border:2px solid ${borderColor};padding:${cellPadding}px;background:${headerBg};color:${headerColor};font-weight:900;word-break:break-word\">${normalizePdfText(header)}</th>`).join('');
     const rowsHtml = rows.map((row) => (
@@ -559,22 +580,23 @@ export default function StoneInventoryApp() {
     )).join('');
 
     const logoHtml = logoDataUrl
-      ? `<img src="${logoDataUrl}" alt="logo" style="height:64px;object-fit:contain" />`
-      : '<div style="height:64px;width:120px"></div>';
+      ? `<img src="${logoDataUrl}" alt="logo" style="height:96px;object-fit:contain" />`
+      : '<div style="height:96px;width:140px"></div>';
 
     const qrHtml = qrDataUrl
-      ? `<img src="${qrDataUrl}" alt="qr" style="height:64px;width:64px;object-fit:contain" />`
-      : '<div style="height:64px;width:64px"></div>';
+      ? `<img src="${qrDataUrl}" alt="qr" style="height:96px;width:96px;object-fit:contain" />`
+      : '<div style="height:96px;width:96px"></div>';
 
     return `
-      <div dir="rtl" style="font-family:'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif;padding:16px;color:#111;background:#fff">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;direction:ltr;margin-bottom:8px">
+      <div dir="ltr" style="font-family:'Vazirmatn','Tahoma','Segoe UI',Arial,sans-serif;padding:16px;color:#111;background:#fff">
+        <div style="display:flex;justify-content:space-between;align-items:center;direction:ltr;margin-bottom:8px;gap:12px">
           <div>${logoHtml}</div>
+          <div style="flex:1;text-align:center;font-size:${Math.round(18 * fontScale)}px;font-weight:800">${normalizePdfText(headerText)}</div>
           <div>${qrHtml}</div>
         </div>
         <h2 style="text-align:center;margin:0 0 10px 0;font-size:${titleFontSize}px;font-weight:900">${normalizePdfText(title)}</h2>
         <p style="text-align:center;margin:0 0 14px 0;font-size:${subtitleFontSize}px;font-weight:800">${normalizePdfText(subtitle)}</p>
-        <table style=\"width:100%;border-collapse:collapse;font-size:${tableFontSize}px;text-align:center;direction:rtl;font-weight:700;table-layout:fixed\">
+        <table style=\"width:100%;border-collapse:collapse;font-size:${tableFontSize}px;text-align:center;direction:ltr;font-weight:800;table-layout:auto\">
           <thead><tr>${headersHtml}</tr></thead>
           <tbody>${rowsHtml}</tbody>
         </table>
@@ -631,7 +653,6 @@ export default function StoneInventoryApp() {
 
       const blobUrl = doc.output('bloburl');
       window.open(blobUrl, '_blank', 'noopener,noreferrer');
-      doc.save(fileName);
     } finally {
       document.body.removeChild(container);
     }
@@ -653,7 +674,7 @@ export default function StoneInventoryApp() {
       Number(stone.area).toFixed(2),
     ]));
 
-    const logoDataUrl = settings.showLogoInPdf ? await loadLogoDataUrl() : null;
+    const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
     const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
     const htmlContent = buildPdfHtml({
@@ -665,6 +686,7 @@ export default function StoneInventoryApp() {
       qrDataUrl,
       fontScale: settings.pdfFontScale,
       darkTable: true,
+      headerText: settings.pdfHeaderText,
     });
 
     await exportHtmlPdf({ htmlContent, fileName: `pallet-${palletDetails.palletNumber}.pdf` });
@@ -690,7 +712,7 @@ export default function StoneInventoryApp() {
         getPalletInvoice(stone.palletNumber) ? 'Sold' : 'In Stock',
       ]);
 
-      const logoDataUrl = settings.showLogoInPdf ? await loadLogoDataUrl() : null;
+      const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
       const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
       const htmlContent = buildPdfHtml({
@@ -700,6 +722,7 @@ export default function StoneInventoryApp() {
         rows,
         logoDataUrl,
         qrDataUrl,
+        headerText: settings.pdfHeaderText,
       });
 
       await exportHtmlPdf({ htmlContent, fileName: `Search_Report_${new Date().toISOString().slice(0, 10)}.pdf` });
@@ -717,7 +740,7 @@ export default function StoneInventoryApp() {
         Number(stone.area).toFixed(2),
       ]);
 
-      const logoDataUrl = settings.showLogoInPdf ? await loadLogoDataUrl() : null;
+      const logoDataUrl = settings.showLogoInPdf ? await getEffectiveLogoDataUrl() : null;
       const qrDataUrl = settings.showQrInPdf ? await loadQrDataUrl() : null;
 
       const htmlContent = buildPdfHtml({
@@ -1460,12 +1483,42 @@ export default function StoneInventoryApp() {
                 <input
                   type="range"
                   min="0.8"
-                  max="1.8"
+                  max="3"
                   step="0.05"
                   value={settings.pdfFontScale}
                   onChange={(e) => handleSettingsChange('pdfFontScale', parseFloat(e.target.value))}
                   className="w-full"
                 />
+              </div>
+              <div className="bg-gray-700 p-3 rounded md:col-span-2">
+                <label className="block mb-2">متن سربرگ کارت پالت (بین لوگو و QR)</label>
+                <Input
+                  value={settings.pdfHeaderText}
+                  onChange={(e) => handleSettingsChange('pdfHeaderText', e.target.value)}
+                  placeholder="نام شرکت / توضیح دلخواه"
+                />
+              </div>
+
+              <div className="bg-gray-700 p-3 rounded md:col-span-2">
+                <label className="block mb-2">لوگوی سفارشی برای PDF</label>
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/jpg,image/webp"
+                  onChange={handleLogoUpload}
+                  className="w-full"
+                />
+                {settings.customLogoDataUrl && (
+                  <div className="mt-2 flex items-center justify-between">
+                    <span className="text-xs text-green-300">لوگوی سفارشی فعال است.</span>
+                    <Button
+                      type="button"
+                      onClick={() => handleSettingsChange('customLogoDataUrl', '')}
+                      className="bg-red-600 hover:bg-red-500 px-3 py-1 text-xs"
+                    >
+                      حذف لوگوی سفارشی
+                    </Button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

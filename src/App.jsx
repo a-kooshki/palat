@@ -172,12 +172,37 @@ export default function StoneInventoryApp() {
     thickness: '',
   });
 
+  const fetchLanData = async () => {
+    const response = await fetch('/api/data', { method: 'GET' });
+    if (!response.ok) throw new Error('LAN load failed');
+    return response.json();
+  };
+
+  const saveLanData = async (dataToSave) => {
+    const response = await fetch('/api/data', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dataToSave),
+    });
+    if (!response.ok) throw new Error('LAN save failed');
+  };
+
   const persistData = async (dataToSave) => {
     try {
       if (window.electronAPI) {
         await window.electronAPI.saveData(dataToSave);
         return;
       }
+
+      if (window.location.protocol.startsWith('http')) {
+        try {
+          await saveLanData(dataToSave);
+          return;
+        } catch {
+          // fallback to local storage
+        }
+      }
+
       localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
     } catch (error) {
       console.error('Failed to save inventory data:', error);
@@ -204,9 +229,21 @@ export default function StoneInventoryApp() {
           return;
         }
 
-        const raw = localStorage.getItem('stone-inventory-data');
-        if (!raw) return;
-        const data = JSON.parse(raw);
+        let data = null;
+
+        if (window.location.protocol.startsWith('http')) {
+          try {
+            data = await fetchLanData();
+          } catch {
+            data = null;
+          }
+        }
+
+        if (!data) {
+          const raw = localStorage.getItem('stone-inventory-data');
+          if (!raw) return;
+          data = JSON.parse(raw);
+        }
         const loadedStones = Array.isArray(data.stones) ? data.stones : [];
         const loadedStoneTypes = Array.isArray(data.stoneTypes) && data.stoneTypes.length > 0
           ? data.stoneTypes
@@ -249,6 +286,15 @@ export default function StoneInventoryApp() {
 
       if (window.electronAPI) {
         window.electronAPI.saveData(dataToSave);
+      } else if (window.location.protocol.startsWith('http')) {
+        fetch('/api/data', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(dataToSave),
+          keepalive: true,
+        }).catch(() => {
+          localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
+        });
       } else {
         localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
       }

@@ -187,6 +187,8 @@ export default function StoneInventoryApp() {
     if (!response.ok) throw new Error('LAN save failed');
   };
 
+  const isLanBrowserMode = !window.electronAPI && window.location.protocol.startsWith('http');
+
   const persistData = async (dataToSave) => {
     try {
       if (window.electronAPI) {
@@ -194,13 +196,9 @@ export default function StoneInventoryApp() {
         return;
       }
 
-      if (window.location.protocol.startsWith('http')) {
-        try {
-          await saveLanData(dataToSave);
-          return;
-        } catch {
-          // fallback to local storage
-        }
+      if (isLanBrowserMode) {
+        await saveLanData(dataToSave);
+        return;
       }
 
       localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
@@ -231,15 +229,9 @@ export default function StoneInventoryApp() {
 
         let data = null;
 
-        if (window.location.protocol.startsWith('http')) {
-          try {
-            data = await fetchLanData();
-          } catch {
-            data = null;
-          }
-        }
-
-        if (!data) {
+        if (isLanBrowserMode) {
+          data = await fetchLanData();
+        } else {
           const raw = localStorage.getItem('stone-inventory-data');
           if (!raw) return;
           data = JSON.parse(raw);
@@ -248,10 +240,13 @@ export default function StoneInventoryApp() {
         const loadedStoneTypes = Array.isArray(data.stoneTypes) && data.stoneTypes.length > 0
           ? data.stoneTypes
           : ['Granite', 'Marble', 'Limestone'];
-        setStones(loadedStones);
-        setStoneTypes(loadedStoneTypes);
+        setStones((prev) => (JSON.stringify(prev) === JSON.stringify(loadedStones) ? prev : loadedStones));
+        setStoneTypes((prev) => (JSON.stringify(prev) === JSON.stringify(loadedStoneTypes) ? prev : loadedStoneTypes));
         if (data.settings) {
-          setSettings((prev) => ({ ...prev, ...data.settings }));
+          setSettings((prev) => {
+            const merged = { ...prev, ...data.settings };
+            return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+          });
         }
       } catch (error) {
         console.error('Failed to load inventory data:', error);
@@ -260,6 +255,35 @@ export default function StoneInventoryApp() {
 
     loadData();
   }, []);
+
+  // همگام‌سازی خودکار برای کلاینت‌های شبکه
+  useEffect(() => {
+    if (!isLanBrowserMode) return undefined;
+
+    const syncFromServer = async () => {
+      try {
+        const data = await fetchLanData();
+        const loadedStones = Array.isArray(data.stones) ? data.stones : [];
+        const loadedStoneTypes = Array.isArray(data.stoneTypes) && data.stoneTypes.length > 0
+          ? data.stoneTypes
+          : ['Granite', 'Marble', 'Limestone'];
+
+        setStones((prev) => (JSON.stringify(prev) === JSON.stringify(loadedStones) ? prev : loadedStones));
+        setStoneTypes((prev) => (JSON.stringify(prev) === JSON.stringify(loadedStoneTypes) ? prev : loadedStoneTypes));
+        if (data.settings) {
+          setSettings((prev) => {
+            const merged = { ...prev, ...data.settings };
+            return JSON.stringify(prev) === JSON.stringify(merged) ? prev : merged;
+          });
+        }
+      } catch (error) {
+        console.error('LAN sync failed:', error);
+      }
+    };
+
+    const interval = setInterval(syncFromServer, 3000);
+    return () => clearInterval(interval);
+  }, [isLanBrowserMode]);
 
   // ذخیره‌سازی سریع بعد از تغییرات
   useEffect(() => {
@@ -286,14 +310,14 @@ export default function StoneInventoryApp() {
 
       if (window.electronAPI) {
         window.electronAPI.saveData(dataToSave);
-      } else if (window.location.protocol.startsWith('http')) {
+      } else if (isLanBrowserMode) {
         fetch('/api/data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(dataToSave),
           keepalive: true,
         }).catch(() => {
-          localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));
+          console.error('LAN save on unload failed');
         });
       } else {
         localStorage.setItem('stone-inventory-data', JSON.stringify(dataToSave));

@@ -283,8 +283,19 @@ export default function StoneInventoryApp() {
       }
     };
 
-    const interval = setInterval(syncFromServer, 3000);
-    return () => clearInterval(interval);
+    // sync فوری بعد از اجرا
+    syncFromServer();
+
+    const interval = setInterval(syncFromServer, 2000);
+    const onFocus = () => syncFromServer();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
   }, [isLanBrowserMode]);
 
   // ذخیره‌سازی سریع بعد از تغییرات

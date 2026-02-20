@@ -152,6 +152,7 @@ export default function StoneInventoryApp() {
     invoiceNumber: ''
   });
   const [palletDetails, setPalletDetails] = useState(null);
+  const [palletPrintRows, setPalletPrintRows] = useState([]);
   const [palletNumberInput, setPalletNumberInput] = useState('');
 
   const [selectedPallets, setSelectedPallets] = useState([]);
@@ -256,13 +257,14 @@ export default function StoneInventoryApp() {
     loadData();
   }, []);
 
-  // همگام‌سازی خودکار برای کلاینت‌های شبکه
+  // همگام‌سازی خودکار داده‌ها بین برنامه و کلاینت‌های شبکه
   useEffect(() => {
-    if (!isLanBrowserMode) return undefined;
+    const shouldSync = !!window.electronAPI || isLanBrowserMode;
+    if (!shouldSync) return undefined;
 
     const syncFromServer = async () => {
       try {
-        const data = await fetchLanData();
+        const data = window.electronAPI ? await window.electronAPI.loadData() : await fetchLanData();
         const loadedStones = Array.isArray(data.stones) ? data.stones : [];
         const loadedStoneTypes = Array.isArray(data.stoneTypes) && data.stoneTypes.length > 0
           ? data.stoneTypes
@@ -404,6 +406,36 @@ export default function StoneInventoryApp() {
     }
   };
 
+
+  const incrementPalletNumber = (formattedPallet) => {
+    const match = String(formattedPallet || '').match(/^([A-Z])-(\d{1,3})$/);
+    if (!match) return 'A-1';
+    const letter = match[1];
+    const number = Number(match[2]);
+    if (!Number.isFinite(number)) return `${letter}-1`;
+    return `${letter}-${Math.min(999, number + 1)}`;
+  };
+
+  const goToNextPallet = () => {
+    setFormData((prev) => {
+      const current = /^[A-Z]-\d{1,3}$/.test(prev.palletNumber) ? prev.palletNumber : 'A-1';
+      const nextPallet = incrementPalletNumber(current);
+      return {
+        type: '',
+        cutCode: '',
+        palletNumber: nextPallet,
+        grade: '',
+        thickness: '',
+        length: '',
+        width: '',
+        quantity: '',
+        area: '',
+        notes: '',
+        status: 'در انبار',
+      };
+    });
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
 
@@ -425,26 +457,27 @@ export default function StoneInventoryApp() {
       area: parseFloat(formData.area)
     };
 
-    if (settings.enableFormDefaults) {
-      setLastEntryDefaults({
-        type: formData.type,
-        cutCode: formData.cutCode,
-        grade: formData.grade,
-        thickness: formData.thickness,
-      });
-    }
+    const nextDefaults = settings.enableFormDefaults
+      ? {
+          type: formData.type,
+          cutCode: formData.cutCode,
+          grade: formData.grade,
+          thickness: formData.thickness,
+        }
+      : { type: '', cutCode: '', grade: '', thickness: '' };
 
+    setLastEntryDefaults(nextDefaults);
     setStones([...normalizedStones, newStone]);
-    resetForm();
+    resetForm(nextDefaults);
   };
 
-  const resetForm = () => {
+  const resetForm = (defaults = lastEntryDefaults) => {
     setFormData(prev => ({
-      type: settings.enableFormDefaults ? lastEntryDefaults.type : '',
-      cutCode: settings.enableFormDefaults ? lastEntryDefaults.cutCode : '',
+      type: settings.enableFormDefaults ? defaults.type : '',
+      cutCode: settings.enableFormDefaults ? defaults.cutCode : '',
       palletNumber: prev.palletNumber,
-      grade: settings.enableFormDefaults ? lastEntryDefaults.grade : '',
-      thickness: settings.enableFormDefaults ? lastEntryDefaults.thickness : '',
+      grade: settings.enableFormDefaults ? defaults.grade : '',
+      thickness: settings.enableFormDefaults ? defaults.thickness : '',
       length: '',
       width: '',
       quantity: '',
@@ -530,6 +563,7 @@ export default function StoneInventoryApp() {
   });
 
   const totalFilteredArea = filteredStones.reduce((sum, stone) => sum + stone.area, 0).toFixed(2);
+  const totalFilteredQuantity = filteredStones.reduce((sum, stone) => sum + Number(stone.quantity || 0), 0);
 
   const calculatePalletArea = (palletNumber) => {
     return stones
@@ -539,17 +573,25 @@ export default function StoneInventoryApp() {
   };
 
   const handlePalletSearch = () => {
-    const palletStones = normalizedStones.filter(stone => stone.palletNumber === palletNumberInput);
+    const targetPallet = formatPalletOnBlur(palletNumberInput);
+    if (!targetPallet) {
+      alert('فرمت شماره پالت باید مثل A-123 باشد.');
+      return;
+    }
+
+    const palletStones = normalizedStones.filter(stone => stone.palletNumber === targetPallet);
 
     if (palletStones.length > 0) {
       setPalletDetails({
-        palletNumber: palletNumberInput,
+        palletNumber: targetPallet,
         stones: palletStones,
-        totalArea: calculatePalletArea(palletNumberInput)
+        totalArea: calculatePalletArea(targetPallet)
       });
+      setPalletPrintRows(palletStones.map((stone) => ({ ...stone }))); 
     } else {
-      alert(`سنگی برای شماره پالت پیدا نشد: ${palletNumberInput}`);
+      alert(`سنگی برای شماره پالت پیدا نشد: ${targetPallet}`);
       setPalletDetails(null);
+      setPalletPrintRows([]);
     }
   };
 
@@ -727,7 +769,10 @@ export default function StoneInventoryApp() {
       return;
     }
 
-    const rows = palletDetails.stones.map((stone, index) => ([
+    const printableRows = (Array.isArray(palletPrintRows) && palletPrintRows.length > 0 ? palletPrintRows : palletDetails.stones);
+    const printableTotalArea = printableRows.reduce((sum, stone) => sum + Number(stone.area || 0), 0);
+
+    const rows = printableRows.map((stone, index) => ([
       index + 1,
       stone.type,
       Number(stone.thickness).toFixed(2),
@@ -746,7 +791,7 @@ export default function StoneInventoryApp() {
 
     const htmlPages = rowChunks.map((chunk, idx) => buildPdfHtml({
       title: `Pallet Card: ${palletDetails.palletNumber}`,
-      subtitle: `Total Area: ${Number(palletDetails.totalArea).toFixed(2)} m² | Page ${idx + 1}/${rowChunks.length}`,
+      subtitle: `Total Area: ${Number(printableTotalArea).toFixed(2)} m² | Page ${idx + 1}/${rowChunks.length}`,
       headers: ['#', 'Type', 'Thk', 'Len', 'Wid', 'Qty', 'Area'],
       rows: chunk,
       logoDataUrl,
@@ -1138,8 +1183,8 @@ export default function StoneInventoryApp() {
 
 
               <div className="flex justify-end space-x-4 mt-6">
-                <Button type="button" onClick={resetForm} className="bg-gray-600 hover:bg-gray-500">
-                  پاک کردن
+                <Button type="button" onClick={goToNextPallet} className="bg-gray-600 hover:bg-gray-500">
+                  پالت بعدی
                 </Button>
                 <Button type="submit" className="bg-blue-600 hover:bg-blue-500">
                   ذخیره سنگ
@@ -1237,7 +1282,8 @@ export default function StoneInventoryApp() {
                 <Input
                   name="palletNumber"
                   value={filters.palletNumber}
-                  onChange={handleFilterChange}
+                  onChange={(e) => setFilters((prev) => ({ ...prev, palletNumber: normalizePalletInput(e.target.value) }))}
+                  onBlur={(e) => setFilters((prev) => ({ ...prev, palletNumber: formatPalletOnBlur(e.target.value) }))}
                   placeholder="e.g., A-123"
                 />
               </div>
@@ -1345,7 +1391,7 @@ export default function StoneInventoryApp() {
                 متراژ کل نتایج: <span className="text-blue-300">{totalFilteredArea} m²</span>
               </p>
               <p className="font-semibold">
-                تعداد کل سنگ‌ها: <span className="text-blue-300">{filteredStones.length}</span>
+                تعداد سنگ (جمع تعدادها): <span className="text-blue-300">{totalFilteredQuantity}</span>
               </p>
             </div>
 
@@ -1390,7 +1436,7 @@ export default function StoneInventoryApp() {
                     </label>
                     <h3 className="font-semibold text-lg text-blue-300">
                       پالت: {palletGroup.palletNumber}
-                      <span className="text-sm text-gray-300 mr-2">متراژ کل: {palletGroup.totalArea.toFixed(2)} m²</span>
+                      <span className="text-sm text-gray-300 mr-2">متراژ کل: {palletGroup.totalArea.toFixed(2)} m² | تعداد کل: {palletGroup.stones.reduce((sum, item) => sum + Number(item.quantity || 0), 0)}</span>
                     </h3>
                     <div className="flex gap-2">
                       <Button
@@ -1463,7 +1509,8 @@ export default function StoneInventoryApp() {
                   <label className="block text-sm font-medium mb-1">شماره پالت</label>
                   <Input
                     value={palletNumberInput}
-                    onChange={(e) => setPalletNumberInput(e.target.value)}
+                    onChange={(e) => setPalletNumberInput(normalizePalletInput(e.target.value))}
+                    onBlur={(e) => setPalletNumberInput(formatPalletOnBlur(e.target.value))}
                     placeholder="e.g., A-123"
                   />
                 </div>
@@ -1492,15 +1539,15 @@ export default function StoneInventoryApp() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {palletDetails.stones.map((stone, index) => (
+                      {(palletPrintRows.length > 0 ? palletPrintRows : palletDetails.stones).map((stone, index) => (
                         <TableRow key={stone.id}>
                           <TableCell>{index + 1}</TableCell>
-                          <TableCell>{stone.type}</TableCell>
-                          <TableCell>{stone.thickness.toFixed(2)}</TableCell>
-                          <TableCell>{stone.length.toFixed(2)}</TableCell>
-                          <TableCell>{stone.width.toFixed(2)}</TableCell>
-                          <TableCell>{stone.quantity}</TableCell>
-                          <TableCell>{stone.area.toFixed(2)}</TableCell>
+                          <TableCell><Input value={stone.type} onChange={(e) => setPalletPrintRows((prev) => prev.map((r, i) => i === index ? { ...r, type: e.target.value } : r))} /></TableCell>
+                          <TableCell><Input type="number" step="0.01" value={stone.thickness} onChange={(e) => setPalletPrintRows((prev) => prev.map((r, i) => i === index ? { ...r, thickness: parseFloat(e.target.value) || 0 } : r))} /></TableCell>
+                          <TableCell><Input type="number" step="0.01" value={stone.length} onChange={(e) => setPalletPrintRows((prev) => prev.map((r, i) => i === index ? { ...r, length: parseFloat(e.target.value) || 0, area: ((parseFloat(e.target.value) || 0) * (Number(r.width) || 0) * (Number(r.quantity) || 0)).toFixed(2) } : r))} /></TableCell>
+                          <TableCell><Input type="number" step="0.01" value={stone.width} onChange={(e) => setPalletPrintRows((prev) => prev.map((r, i) => i === index ? { ...r, width: parseFloat(e.target.value) || 0, area: ((Number(r.length) || 0) * (parseFloat(e.target.value) || 0) * (Number(r.quantity) || 0)).toFixed(2) } : r))} /></TableCell>
+                          <TableCell><Input type="number" value={stone.quantity} onChange={(e) => setPalletPrintRows((prev) => prev.map((r, i) => i === index ? { ...r, quantity: parseInt(e.target.value) || 0, area: ((Number(r.length) || 0) * (Number(r.width) || 0) * (parseInt(e.target.value) || 0)).toFixed(2) } : r))} /></TableCell>
+                          <TableCell>{Number(stone.area || 0).toFixed(2)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1641,6 +1688,26 @@ export default function StoneInventoryApp() {
                         className="bg-red-600 hover:bg-red-500 px-2 py-1 text-xs"
                       >
                         حذف
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const nextName = window.prompt('نام جدید نوع سنگ را وارد کنید:', type);
+                          if (!nextName || !nextName.trim() || nextName.trim() === type) return;
+                          const trimmed = nextName.trim();
+                          if (normalizedStoneTypes.includes(trimmed)) {
+                            alert('این نام از قبل وجود دارد.');
+                            return;
+                          }
+
+                          setStoneTypes(normalizedStoneTypes.map((t) => (t === type ? trimmed : t)));
+                          setStones((prev) => prev.map((stone) => (stone.type === type ? { ...stone, type: trimmed } : stone)));
+                          setFormData((prev) => ({ ...prev, type: prev.type === type ? trimmed : prev.type }));
+                          setFilters((prev) => ({ ...prev, type: prev.type === type ? trimmed : prev.type }));
+                        }}
+                        className="bg-yellow-600 hover:bg-yellow-500 px-2 py-1 text-xs mr-2"
+                      >
+                        تغییر نام
                       </Button>
                     </TableCell>
                   </TableRow>

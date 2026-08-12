@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import './index.css';
 import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';

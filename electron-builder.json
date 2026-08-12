@@ -1,0 +1,59 @@
+{
+  "appId": "com.stone.inventory",
+  "productName": "Stone Inventory Management",
+  "copyright": "Copyright © 2026 Stone Inventory Management",
+  "directories": {
+    "output": "dist",
+    "buildResources": "assets"
+  },
+  "files": [
+    "main/**/*",
+    "renderer/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "renderer/public/icon.png",
+      "to": "icon.png"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "ia32"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64", "ia32"]
+      }
+    ],
+    "icon": "renderer/public/icon.png",
+    "requestedExecutionLevel": "requireAdministrator"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "installerIcon": "renderer/public/icon.ico",
+    "uninstallerIcon": "renderer/public/icon.ico",
+    "installerHeaderIcon": "renderer/public/icon.ico",
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "Stone Inventory Management",
+    "menuCategory": true
+  },
+  "portable": {
+    "artifactName": "StoneInventory-Portable-${version}.${ext}",
+    "compression": "store",
+    "executableName": "StoneInventory"
+  },
+  "mac": {
+    "target": ["dmg", "zip"],
+    "icon": "renderer/public/icon.png"
+  },
+  "linux": {
+    "target": ["AppImage", "deb"],
+    "icon": "renderer/public/icon.png"
+  },
+  "publish": null
+}

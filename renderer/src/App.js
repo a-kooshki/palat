@@ -4,6 +4,7 @@ import { jsPDF } from 'jspdf';
 import 'jspdf-autotable';
 import { Chart as ChartJS, CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend } from 'chart.js';
 import { Bar } from 'react-chartjs-2';
+import { createPalletCardQrCode, WEBSITE_URL } from './palletCardQr';
 
 // Register ChartJS components
 ChartJS.register(CategoryScale, LinearScale, BarElement, Title, Tooltip, Legend);
@@ -460,10 +461,13 @@ export default function StoneInventoryApp() {
 
   const generatePalletCardPDF = (palletNumber, stones, totalArea) => {
     const doc = new jsPDF();
+    doc.addImage(createPalletCardQrCode(), 'PNG', 165, 10, 30, 30);
     doc.setFontSize(16);
     doc.text(`Pallet Card: ${palletNumber}`, 105, 20, { align: 'center' });
     doc.setFontSize(12);
     doc.text(`Total Area: ${totalArea.toFixed(2)} m²`, 105, 30, { align: 'center' });
+    doc.setFontSize(7);
+    doc.text(WEBSITE_URL, 180, 43, { align: 'center' });
 
     const tableData = stones.map((stone, index) => [
       index + 1,
@@ -476,7 +480,7 @@ export default function StoneInventoryApp() {
     ]);
 
     doc.autoTable({
-      startY: 40,
+      startY: 50,
       head: [['#', 'Type', 'Thickness (m)', 'Length (m)', 'Width (m)', 'Qty', 'Area (m²)']],
       body: tableData,
       styles: { fontSize: 10 },

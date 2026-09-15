@@ -5,7 +5,9 @@ const fsSync = require('fs');
 const http = require('http');
 const os = require('os');
 
-const isDev = !app.isPackaged;
+// `app.isPackaged` is false for both the Vite workflow and `npm start`.
+// Require an explicit flag so `npm start` serves the already-built renderer.
+const isDev = !app.isPackaged && process.argv.includes('--dev');
 const dataFileName = 'stone-inventory-data.json';
 const LAN_PORT = Number(process.env.PALAT_LAN_PORT || 3210);
 

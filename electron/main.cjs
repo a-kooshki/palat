@@ -5,7 +5,10 @@ const fsSync = require('fs');
 const http = require('http');
 const os = require('os');
 
-const isDev = !app.isPackaged;
+// Development mode is selected explicitly by the launcher. `app.isPackaged`
+// is false for both `electron .` and the development server, so it cannot
+// distinguish `npm start` from `npm run dev`.
+const isDev = process.argv.includes('--dev');
 const dataFileName = 'stone-inventory-data.json';
 const LAN_PORT = Number(process.env.PALAT_LAN_PORT || 3210);
 
